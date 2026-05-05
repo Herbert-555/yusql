@@ -124,16 +124,21 @@ R4(→1,CURRENT_TIMESTAMP)  vs  R2
 
 ```
 GET /shop/list?cat=1
-追加参数：sort=price（归入排序测试）
 
-R1 (sort=price)：              body="苹果,香蕉,橘子"        （按价格）
-R2 (sort=1)：                  body="橘子,苹果,香蕉"        （按第1列，排序改变）
+追加参数：orderBy=orderBy（归入排序测试）
+说明：原始请求无排序参数，追加 orderBy 后因列名不匹配触发 SQL 报错。
+
+R0 (原始请求)：                body="苹果,香蕉,橘子"        （默认顺序）
+R1 (orderBy=orderBy)：          body="ERROR: Unknown column 'orderBy'" （列不存在）
+  → R1≠R0（附加参数后报错），继续测试
+
+R2 (orderBy=1)：                body="橘子,苹果,香蕉"        （按第1列排序）
   → R2≠R1，排序值变化确实影响响应
 
-R3 (sort=1,aaa)：              body="橘子,苹果,香蕉"
-  → R3≠R2（1,aaa 可能是非法排序但仍按第1列），但差异存在说明逗号被接受
+R3 (orderBy=1,aaa)：            body="橘子,苹果,香蕉"
+  → R3≠R2（1,aaa 语法不同但效果等价），逗号参数生效
 
-R4 (sort=1,CURRENT_TIMESTAMP)：body="橘子,苹果,香蕉"
+R4 (orderBy=1,CURRENT_TIMESTAMP)：body="橘子,苹果,香蕉"
   → R4==R2，CURRENT_TIMESTAMP 被解析为常量，与 1 同效
   → ★ 排序注入成立！（常规命中）
 ```
@@ -141,13 +146,13 @@ R4 (sort=1,CURRENT_TIMESTAMP)：body="橘子,苹果,香蕉"
 **逗号过滤兜底场景：**
 
 ```
-R4 (sort=1,CURRENT_TIMESTAMP)：body="错误：非法排序参数"
+R4 (orderBy=1,CURRENT_TIMESTAMP)：body="ERROR: 非法排序参数"
   → R4≠R2，但 R4==R3（逗号被过滤，两个含逗号的值都报错）
 
-R5 (sort=CURRENT_TIMESTAMP)：   body="橘子,苹果,香蕉"      （无逗号，正常）
+R5 (orderBy=CURRENT_TIMESTAMP)：   body="橘子,苹果,香蕉"      （无逗号，正常）
   → R5==R2，函数值单独生效
 
-R6 (sort=aaa)：                 body="错误：未知列名"
+R6 (orderBy=aaa)：                 body="ERROR: Unknown column 'aaa'"
   → R6≠R2 且 R6≠R5，并非所有值都返回相同结果
   → ★ 排序注入成立！（逗号过滤兜底）
 ```
