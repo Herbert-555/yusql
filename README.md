@@ -145,15 +145,19 @@ R4 (orderBy=1,CURRENT_TIMESTAMP)：body="橘子,苹果,香蕉"
 
 **逗号过滤兜底场景：**
 
+当服务器对逗号做过滤处理时，`1,aaa` 和 `1,CURRENT_TIMESTAMP` 都会因包含逗号而触发相同结果——可能是逗号被直接移除（变成 `1aaa` / `1CURRENT_TIMESTAMP`），也可能是检测到逗号即报错"非法字符"。这导致 R4==R3，无法通过常规路径判定。
+
+兜底策略：去掉逗号，仅传 `CURRENT_TIMESTAMP` 单值，避免逗号过滤干扰：
+
 ```
-R4 (orderBy=1,CURRENT_TIMESTAMP)：body="ERROR: 非法排序参数"
-  → R4≠R2，但 R4==R3（逗号被过滤，两个含逗号的值都报错）
+R4 (orderBy=1,CURRENT_TIMESTAMP)：body="ERROR: 非法字符"
+  → R4≠R2，但 R4==R3（两者都含逗号，触发同样的过滤报错）
 
 R5 (orderBy=CURRENT_TIMESTAMP)：   body="橘子,苹果,香蕉"      （无逗号，正常）
-  → R5==R2，函数值单独生效
+  → R5==R2，函数值单独生效，说明逗号确实是卡点
 
 R6 (orderBy=aaa)：                 body="ERROR: Unknown column 'aaa'"
-  → R6≠R2 且 R6≠R5，并非所有值都返回相同结果
+  → R6≠R2 且 R6≠R5，排除"任意值都返回同结果"的误判
   → ★ 排序注入成立！（逗号过滤兜底）
 ```
 
