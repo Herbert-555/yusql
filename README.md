@@ -158,10 +158,34 @@ R6 (sort=aaa)：                 body="错误：未知列名"
 
 ## 参数支持
 
-- GET 查询参数
-- POST form 参数 (`application/x-www-form-urlencoded`)
-- JSON body value
-- GET/POST form 中参数值为 JSON (`JSON_IN_PARAM`)
+| 参数类型 | 说明 | 示例 |
+|---------|------|------|
+| GET 查询参数 | URL `?` 后的 key=value | `?id=1&name=test` |
+| POST form 参数 | `application/x-www-form-urlencoded` body | `id=1&name=test` |
+| JSON body | `application/json` body 中的字段值 | `{"id":1,"name":"test"}` |
+| JSON in param | GET/POST form 参数值为 JSON 时，自动解析内部字段 | `?data={"id":1}` → 测试 `$.id` |
+
+### JSON in param 自动解析
+
+当 GET 查询参数或 POST form 参数的值是合法 JSON（以 `{`/`[` 开头并以 `}`/`]` 结尾）时，插件会自动将 JSON 内部的字段值作为独立测试点：
+
+```
+原始请求：
+  GET /api/query?filter={"name":"admin","page":1}
+
+解析出 2 个测试点：
+  $.name → admin
+  $.page → 1
+
+注入测试时：
+  $.name → admin'  （payload 注入到 JSON 字符串内部）
+  $.page → 1'
+```
+
+**注意：**
+- 插件会先 URL 解码参数值，再判断是否为 JSON
+- 支持嵌套 JSON 对象和数组
+- JSON 值注入时会保持外层 JSON 结构完整
 
 ## 构建
 
