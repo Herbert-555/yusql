@@ -4,8 +4,9 @@
 
 ## 版本
 
-**v2.1.1** | 2026-05-06
+**v2.1.2** | 2026-05-06
 
+> **v2.1.2 更新**: 合并 SQL_diy_error.ini 补充报错正则匹配模式（102条），Unicode 转义改为原生中文，插件直接支持中文正则
 > **v2.1.1 修复**: 修复 `PatternSyntaxException` 正则语法错误（字符类非法范围 + URL 黑名单 glob 通配符）
 
 ## 功能模块
@@ -207,13 +208,13 @@ set JAVA_HOME=C:\Program Files\Java\jdk-17
 mvn clean package
 ```
 
-输出：`target/yusql-2.1.1.jar`
+输出：`target/yusql-2.1.2.jar`
 
 ## Burp 加载
 
 1. Burp Suite → Extensions → Add
 2. Extension Type: Java
-3. 选择 `yusql-2.1.1.jar`
+3. 选择 `yusql-2.1.2.jar`
 
 ## 配置目录
 
