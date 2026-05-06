@@ -4,7 +4,9 @@
 
 ## 版本
 
-**v2.1.0** | 2026-05-05
+**v2.1.1** | 2026-05-06
+
+> **v2.1.1 修复**: 修复 `PatternSyntaxException` 正则语法错误（字符类非法范围 + URL 黑名单 glob 通配符）
 
 ## 功能模块
 
@@ -205,13 +207,13 @@ set JAVA_HOME=C:\Program Files\Java\jdk-17
 mvn clean package
 ```
 
-输出：`target/yusql-2.1.0.jar`
+输出：`target/yusql-2.1.1.jar`
 
 ## Burp 加载
 
 1. Burp Suite → Extensions → Add
 2. Extension Type: Java
-3. 选择 `yusql-2.1.0.jar`
+3. 选择 `yusql-2.1.1.jar`
 
 ## 配置目录
 
