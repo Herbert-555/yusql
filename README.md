@@ -4,8 +4,9 @@
 
 ## 版本
 
-**v2.1.2** | 2026-05-06
+**v2.1.3** | 2026-05-06
 
+> **v2.1.3 更新**: 新增原始请求中存在配置参数时单独排序注入测试；排序注入 R1 追加 `_aaa` 后缀；追加参数改为 upsert（替换已有而非追加）；删除"仅扫描Scope内"配置项；UI 优化（版本号、描述文本）
 > **v2.1.2 更新**: 合并 SQL_diy_error.ini 补充报错正则匹配模式（102条），Unicode 转义改为原生中文，插件直接支持中文正则
 > **v2.1.1 修复**: 修复 `PatternSyntaxException` 正则语法错误（字符类非法范围 + URL 黑名单 glob 通配符）
 
@@ -70,14 +71,16 @@ R2 (id=1'')：   200 OK  body="{"name":"admin"}"
 
 ## 排序注入流程
 
-向请求中追加排序参数，逐步替换参数值，通过响应体归一化对比检测 ORDER BY 注入点：
+向请求中追加排序参数，逐步替换参数值，通过响应体归一化对比检测 ORDER BY 注入点。
+
+> **R1 设计思路**：R1 在配置的原始值后追加 `_aaa` 后缀（如 `orderBy_aaa`），目的是故意传一个**不存在的排序列**。因为该列不存在，SQL 会报错或返回异常响应，确保 R1≠R0。后续 R2 传 `1` 是因为表中第 1 列肯定存在、不会报错，让 R2≠R1，从而确认排序参数确实被后端解析执行。
 
 ```
-R0(原始请求)  vs  R1(追加基线)
+R0(原始请求)  vs  R1(附加_aaa后缀)
        │               │
        └── R0==R1 ──→ 跳过
               │
-         R0≠R1
+         R0≠R1（列不存在，报错/异常）
               │
               ▼
 R2(→1)  vs  R1 ── R2==R1 ──→ 跳过（1值不生效）
@@ -116,12 +119,12 @@ R4(→1,CURRENT_TIMESTAMP)  vs  R2
 
 | 步骤 | 参数值 | 作用 |
 |------|--------|------|
-| R1 | 原始值（如 `price`） | 追加基线，确认参数生效 |
-| R2 | `1` | 替换为数值 1，确认排序值变化会影响响应 |
-| R3 | `1,aaa` | 含逗号的值，确认逗号未被过滤 |
-| R4 | `1,CURRENT_TIMESTAMP` | 含时间函数，若响应同 R2 → 函数执行成功 |
-| R5 | `CURRENT_TIMESTAMP` | 单值时间函数（逗号过滤兜底），若同 R2 → 函数值生效 |
-| R6 | `aaa` | 反证：随机字符串，确保 R5 不是碰巧一致 |
+| R1 | 原始值 + `_aaa` 后缀 | 追加不存在的排序列（如 `orderBy_aaa`），让 SQL 报错或响应异常，确保 R1≠R0 |
+| R2 | `1` | 替换为数值 1，第 1 列肯定存在不会报错，让 R2≠R1，确认排序值变化影响响应 |
+| R3 | `1,aaa` | 含逗号的值，没有 `aaa` 这一列会继续报错/异常，让 R3≠R2 |
+| R4 | `1,CURRENT_TIMESTAMP` | 含时间函数，数据库都支持 `CURRENT_TIMESTAMP` 常量，若响应同 R2 → 函数执行成功 |
+| R5 | `CURRENT_TIMESTAMP` | 单值时间函数（逗号过滤兜底），去除逗号因素，若同 R2 → 函数值单独生效 |
+| R6 | `aaa` | 反证：随机字符串，确保 R5 不是碰巧一致（R6 必须 ≠R2 且 ≠R5） |
 
 ### 案例
 
@@ -131,9 +134,9 @@ GET /shop/list?cat=1
 追加参数：orderBy=orderBy（归入排序测试）
 说明：原始请求无排序参数，追加 orderBy 后因列名不匹配触发 SQL 报错。
 
-R0 (原始请求)：                body="苹果,香蕉,橘子"        （默认顺序）
-R1 (orderBy=orderBy)：          body="ERROR: Unknown column 'orderBy'" （列不存在）
-  → R1≠R0（附加参数后报错），继续测试
+R0 (原始请求)：                  body="苹果,香蕉,橘子"        （默认顺序）
+R1 (orderBy=orderBy_aaa)：       body="ERROR: Unknown column 'orderBy_aaa'" （列不存在）
+  → R1≠R0（附加不存在的排序列后报错），继续测试
 
 R2 (orderBy=1)：                body="橘子,苹果,香蕉"        （按第1列排序）
   → R2≠R1，排序值变化确实影响响应
@@ -208,13 +211,13 @@ set JAVA_HOME=C:\Program Files\Java\jdk-17
 mvn clean package
 ```
 
-输出：`target/yusql-2.1.2.jar`
+输出：`target/yusql-2.1.3.jar`
 
 ## Burp 加载
 
 1. Burp Suite → Extensions → Add
 2. Extension Type: Java
-3. 选择 `yusql-2.1.2.jar`
+3. 选择 `yusql-2.1.3.jar`
 
 ## 配置目录
 
