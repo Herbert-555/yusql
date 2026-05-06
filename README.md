@@ -231,12 +231,168 @@ R6 (orderBy=aaa)：                 body="ERROR: Unknown column 'aaa'"
 
 **前置要求：** JDK 17+
 
+### Windows
+
 ```bat
 set JAVA_HOME=C:\Program Files\Java\jdk-17
 mvn clean package
 ```
 
+### macOS / Linux
+
+```bash
+export JAVA_HOME=/path/to/jdk-17
+mvn clean package
+```
+
 输出：`target/yusql-2.1.4.jar`
+
+## 开发指南
+
+### 环境要求
+
+| 依赖 | 版本 | 说明 |
+|------|------|------|
+| JDK | 17+ | 编译和运行均需 JDK 17 |
+| Maven | 3.9+ | 或使用项目自带的 Maven Wrapper（无需安装） |
+| Burp Suite | 2024+ | Montoya API 2026.4 |
+
+### 环境变量
+
+**Windows (CMD):**
+```bat
+set JAVA_HOME=C:\Program Files\Java\jdk-17
+set PATH=%JAVA_HOME%\bin;%PATH%
+```
+
+**Windows (PowerShell):**
+```powershell
+$env:JAVA_HOME = "C:\Program Files\Java\jdk-17"
+$env:PATH = "$env:JAVA_HOME\bin;$env:PATH"
+```
+
+**macOS / Linux (bash/zsh):**
+```bash
+export JAVA_HOME=/path/to/jdk-17
+export PATH=$JAVA_HOME/bin:$PATH
+```
+
+验证环境：
+```bash
+java -version    # 应显示 17.x
+mvn -version     # 如未安装 Maven，使用 mvnw 命令
+```
+
+### 编译打包
+
+#### 方式一：Maven Wrapper（推荐，无需安装 Maven）
+
+**Windows:**
+```bat
+cd /path/to/yusql
+set JAVA_HOME=C:\Program Files\Java\jdk-17
+mvnw.cmd clean package -DskipTests
+```
+
+**macOS / Linux:**
+```bash
+cd /path/to/yusql
+export JAVA_HOME=/path/to/jdk-17
+java -Dmaven.multiModuleProjectDirectory="$PWD" \
+     -classpath ".mvn/wrapper/maven-wrapper.jar" \
+     org.apache.maven.wrapper.MavenWrapperMain \
+     clean package -DskipTests
+```
+
+#### 方式二：已安装 Maven
+
+```bash
+cd /path/to/yusql
+mvn clean package -DskipTests
+```
+
+#### 仅编译（不打包）
+
+```bash
+mvn compile
+# 或使用 Wrapper：
+java -Dmaven.multiModuleProjectDirectory="$PWD" \
+     -classpath ".mvn/wrapper/maven-wrapper.jar" \
+     org.apache.maven.wrapper.MavenWrapperMain compile
+```
+
+### 项目结构
+
+```
+yusql/
+├── pom.xml                                          # Maven 项目配置
+├── mvnw.cmd                                         # Maven Wrapper (Windows)
+├── .mvn/wrapper/
+│   ├── maven-wrapper.jar                            # Maven Wrapper JAR
+│   └── maven-wrapper.properties                     # Maven 版本配置
+└── src/
+    ├── main/java/com/yusql/
+    │   ├── YuSQLExtension.java                      # 插件入口
+    │   ├── config/
+    │   │   └── YuSQLConfig.java                     # 配置管理（加载/保存/默认值）
+    │   ├── compare/
+    │   │   ├── Normalizer.java                      # 响应归一化
+    │   │   ├── ResponseComparator.java              # 响应对比
+    │   │   ├── ResponseFingerprint.java             # 响应指纹
+    │   │   └── TextSimilarity.java                  # 文本相似度
+    │   ├── engine/
+    │   │   ├── ScanEngine.java                      # 扫描引擎（调度入口）
+    │   │   ├── ScanTask.java                        # 扫描任务
+    │   │   ├── TaskQueue.java                       # 任务队列
+    │   │   └── DedupCache.java                      # 去重缓存
+    │   ├── filter/
+    │   │   └── FilterManager.java                   # URL/域名/参数过滤器
+    │   ├── model/
+    │   │   ├── TestPoint.java                       # 测试点模型
+    │   │   ├── LogEntry.java                        # 日志条目
+    │   │   ├── ScanState.java                       # 扫描状态
+    │   │   ├── ParamType.java                       # 参数类型枚举
+    │   │   ├── JsonTestType.java                    # JSON 测试类型
+    │   │   ├── ModuleType.java                      # 模块类型
+    │   │   └── RiskLevel.java                       # 风险等级
+    │   ├── module/
+    │   │   ├── BooleanBlindModule.java              # 布尔注入（3步短路）
+    │   │   ├── ErrorInjectionModule.java            # 报错注入
+    │   │   ├── OrderTestModule.java                 # 追加参数测试
+    │   │   └── OrderInjectionModule.java            # 排序注入（6步流程）
+    │   ├── monitor/
+    │   │   ├── MonitorHandler.java                  # Repeater 监控
+    │   │   └── ProxyMonitorHandler.java             # Proxy 监控
+    │   ├── mutate/
+    │   │   └── RequestBuilder.java                  # 请求构造（payload 注入）
+    │   ├── parser/
+    │   │   ├── ParameterParser.java                 # 参数解析（GET/POST/JSON）
+    │   │   ├── JsonInParamParser.java               # JSON-in-param 解析
+    │   │   └── SimpleJson.java                      # 简易 JSON 解析器
+    │   └── ui/
+    │       ├── YuSQLTab.java                        # 主界面（表格/编辑器/配置）
+    │       └── ContextMenuProvider.java             # 右键菜单
+    └── main/resources/META-INF/services/
+        └── burp.api.montoya.BurpExtension           # Burp SPI 注册
+
+yusql-release/                                       # 发布目录（GitHub Release）
+├── README.md
+├── .gitignore
+└── yusql-X.Y.Z.jar                                  # 编译产物
+```
+
+### Burp 加载插件
+
+1. Burp Suite → Extensions → Add
+2. Extension Type: Java
+3. 选择 `yusql-2.1.4.jar`
+4. 插件启动后会在 `~/.yusql/` 生成默认配置文件
+
+### 调试
+
+- 在 Burp Extensions 窗口选择 YuSQL 查看 Output 和 Errors
+- 插件运行日志在右侧"日志"Tab 中查看
+- 配置文件在 `~/.yusql/` 目录，可直接编辑后点击"保存并重新加载"
 
 ## Burp 加载
 
