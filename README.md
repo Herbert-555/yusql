@@ -271,3 +271,9 @@ mvn clean package
 - Java 17
 - Burp Montoya API 2026.4
 - Maven 3.9+
+
+## 开发团队
+
+- **团队**: FUZZ Team
+- **公众号**: FUZZ Team
+- **成员**: ink、Herbert555
