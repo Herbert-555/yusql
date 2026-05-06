@@ -25,8 +25,10 @@ POC 数量少且 payload 短，用最少的测试请求覆盖最多的注入类�
 
 ## 版本
 
-**v2.1.3** | 2026-05-06
+**v2.1.4** | 2026-05-06
 
+> **v2.1.4 更新**: JSON-in-param 内部字段支持排序注入测试；修复首次运行时配置文件默认值未加载的 Bug；UI 按钮优化（保存/重新加载合并，新增打开配置文件按钮，删除追加按钮，"报错POC"更名为"自定义POC"）
+>
 > **v2.1.3 更新**: 新增原始请求中存在配置参数时单独排序注入测试；排序注入 R1 追加 `_aaa` 后缀；追加参数改为 upsert（替换已有而非追加）；删除"仅扫描Scope内"配置项；UI 优化（版本号、描述文本）
 >
 > **v2.1.2 更新**: 合并 SQL_diy_error.ini 补充报错正则匹配模式（102条），Unicode 转义改为原生中文，插件直接支持中文正则
@@ -234,13 +236,13 @@ set JAVA_HOME=C:\Program Files\Java\jdk-17
 mvn clean package
 ```
 
-输出：`target/yusql-2.1.3.jar`
+输出：`target/yusql-2.1.4.jar`
 
 ## Burp 加载
 
 1. Burp Suite → Extensions → Add
 2. Extension Type: Java
-3. 选择 `yusql-2.1.3.jar`
+3. 选择 `yusql-2.1.4.jar`
 
 ## 配置目录
 
