@@ -74,6 +74,10 @@ public class YuSQLTab extends JPanel {
     private final Map<String, JTextArea> configEditors = new HashMap<>();
     private final Map<String, String> configFileNames = new LinkedHashMap<>();
 
+    // UI log area
+    private JTextArea logArea;
+    private final List<String> logBuffer = new ArrayList<>();
+
     // Config base dir
     private final Path configDir;
 
@@ -210,7 +214,7 @@ public class YuSQLTab extends JPanel {
 
         // Title
         gbc.gridy = 0;
-        panel.add(new JLabel("YuSQL 2.1.4 - 以下配置会自动保存至配置文件"), gbc);
+        panel.add(new JLabel("YuSQL 2.1.5 - 以下配置会自动保存至配置文件"), gbc);
 
         // Enable plugin
         enableChk = new JCheckBox("启动插件", true);
@@ -513,11 +517,11 @@ public class YuSQLTab extends JPanel {
                 Path filePath = configDir.resolve("SQL_append_params.ini");
                 Files.createDirectories(configDir);
                 Files.writeString(filePath, appendTextArea.getText(), StandardCharsets.UTF_8);
-                api.logging().logToOutput("[YuSQL] 已保存: SQL_append_params.ini");
+                appendLog("已保存: SQL_append_params.ini");
                 config.loadAllConfigs();
                 engine.reloadConfig();
             } catch (Exception ex) {
-                api.logging().logToError("[YuSQL] 保存失败: " + ex.getMessage());
+                appendLog("保存失败: " + ex.getMessage());
             }
         });
         JButton openFileBtn = new JButton("打开配置文件");
@@ -564,7 +568,7 @@ public class YuSQLTab extends JPanel {
         reloadBtn.addActionListener(e -> {
             config.loadAllConfigs();
             engine.reloadConfig();
-            api.logging().logToOutput("[YuSQL] 配置已重新加载");
+            appendLog("配置已重新加载");
         });
         btnPanel.add(openDirBtn);
         btnPanel.add(reloadBtn);
@@ -574,12 +578,40 @@ public class YuSQLTab extends JPanel {
 
     private JPanel createLogTab() {
         JPanel panel = new JPanel(new BorderLayout());
-        JTextArea logArea = new JTextArea();
+        logArea = new JTextArea();
         logArea.setFont(new Font("Monospaced", Font.PLAIN, 11));
         logArea.setEditable(false);
         JScrollPane scroll = new JScrollPane(logArea);
         panel.add(scroll, BorderLayout.CENTER);
+        // Flush any buffered logs
+        appendLog("日志系统初始化完成");
         return panel;
+    }
+
+    public void appendLog(String msg) {
+        String timestamp = java.time.LocalTime.now().format(java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss"));
+        String line = "[" + timestamp + "] " + msg;
+        if (logArea == null) {
+            synchronized (logBuffer) { logBuffer.add(line); }
+            return;
+        }
+        SwingUtilities.invokeLater(() -> {
+            synchronized (logBuffer) {
+                for (String buffered : logBuffer) {
+                    logArea.append(buffered + "\n");
+                }
+                logBuffer.clear();
+            }
+            logArea.append(line + "\n");
+            int lines = logArea.getLineCount();
+            if (lines > 5000) {
+                try {
+                    int end = logArea.getLineEndOffset(lines - 5000);
+                    logArea.replaceRange("", 0, end);
+                } catch (Exception ignore) {}
+            }
+            logArea.setCaretPosition(logArea.getDocument().getLength());
+        });
     }
 
     private void loadConfigFile(String fileName, JTextArea area) {
@@ -600,12 +632,12 @@ public class YuSQLTab extends JPanel {
             Files.createDirectories(configDir);
             Path filePath = configDir.resolve(fileName);
             Files.writeString(filePath, area.getText(), StandardCharsets.UTF_8);
-            api.logging().logToOutput("[YuSQL] 已保存: " + fileName);
+            appendLog("已保存: " + fileName);
             // Reload config if it affects engine
             config.loadAllConfigs();
             engine.reloadConfig();
         } catch (Exception e) {
-            api.logging().logToError("[YuSQL] 保存失败 " + fileName + ": " + e.getMessage());
+            appendLog("保存失败 " + fileName + ": " + e.getMessage());
         }
     }
 
@@ -928,8 +960,9 @@ public class YuSQLTab extends JPanel {
         });
 
         engine.setLogCallback(msg -> {
-            api.logging().logToOutput("[YuSQL] " + msg);
+            appendLog(msg);
         });
+        appendLog("Log callback wired to engine");
     }
 
     // --- Public helper ---
