@@ -9,6 +9,7 @@ import com.yusql.model.*;
 import com.yusql.mutate.RequestBuilder;
 
 import java.util.*;
+import java.util.function.Consumer;
 
 public class ErrorInjectionModule {
     private final MontoyaApi api;
@@ -16,21 +17,31 @@ public class ErrorInjectionModule {
     private final List<String> errorPocs;
     private final int lengthDiffAbs;
     private final Normalizer normalizer;
+    private final Consumer<String> logCb;
 
     public ErrorInjectionModule(MontoyaApi api, ResponseComparator comparator,
-                                List<String> errorPocs, int lengthDiffAbs, Normalizer normalizer) {
+                                List<String> errorPocs, int lengthDiffAbs, Normalizer normalizer,
+                                Consumer<String> logCb) {
         this.api = api;
         this.comparator = comparator;
         this.errorPocs = errorPocs != null ? errorPocs : new ArrayList<>();
         this.lengthDiffAbs = lengthDiffAbs;
         this.normalizer = normalizer;
+        this.logCb = logCb;
+    }
+
+    private void log(String msg) {
+        if (logCb != null) {
+            try { logCb.accept(msg); } catch (Exception ignore) {}
+        } else {
+            api.logging().logToOutput(msg);
+        }
     }
 
     /** Test a single test point with all custom error POCs. Returns list of LogEntry results. */
     public List<LogEntry> test(RequestBuilder builder, TestPoint tp, String parentMd5, int r0Length) {
         List<LogEntry> results = new ArrayList<>();
         if (errorPocs.isEmpty()) {
-            api.logging().logToOutput("[报错] " + tp.displayPath() + " 无自定义POC，跳过报错注入模块");
             return results;
         }
 
@@ -51,14 +62,6 @@ public class ErrorInjectionModule {
                 // 1. Check SQL error regex
                 List<String[]> errorHits = comparator.matchErrors(respBody);
                 if (!errorHits.isEmpty()) {
-                    String hitRegex = errorHits.get(0)[0];
-                    api.logging().logToOutput("[报错] " + paramLabel +
-                        " payload=" + truncate(poc) +
-                        " → 报错命中: " + hitRegex +
-                        " 长度" + bodyLen +
-                        " 用时" + reqTime + "ms" +
-                        " 状态码" + statusCode);
-
                     LogEntry entry = new LogEntry(paramLabel, poc, "报错命中",
                         bodyLen, reqTime, String.valueOf(statusCode), "Err",
                         reqBytes, respBytes, builder.getOriginalBytes(), null, parentMd5, 0,
@@ -72,13 +75,6 @@ public class ErrorInjectionModule {
                 int lenDiff = Math.abs(bodyLen - r0Length);
                 if (lenDiff > lengthDiffAbs) {
                     String change = "长度" + (bodyLen > r0Length ? "+" : "") + (bodyLen - r0Length);
-                    api.logging().logToOutput("[报错] " + paramLabel +
-                        " payload=" + truncate(poc) +
-                        " → " + change +
-                        " 长度" + bodyLen +
-                        " 用时" + reqTime + "ms" +
-                        " 状态码" + statusCode);
-
                     LogEntry entry = new LogEntry(paramLabel, poc, change,
                         bodyLen, reqTime, String.valueOf(statusCode), "Len",
                         reqBytes, respBytes, builder.getOriginalBytes(), null, parentMd5, 0,
@@ -86,13 +82,6 @@ public class ErrorInjectionModule {
                     entry.setColorLevel(1);
                     results.add(entry);
                 } else {
-                    api.logging().logToOutput("[报错] " + paramLabel +
-                        " payload=" + truncate(poc) +
-                        " → 无变化" +
-                        " 长度" + bodyLen +
-                        " 用时" + reqTime + "ms" +
-                        " 状态码" + statusCode);
-
                     LogEntry entry = new LogEntry(paramLabel, poc, "无变化",
                         bodyLen, reqTime, String.valueOf(statusCode), "",
                         reqBytes, respBytes, builder.getOriginalBytes(), null, parentMd5, 0,
@@ -101,7 +90,7 @@ public class ErrorInjectionModule {
                     results.add(entry);
                 }
             } catch (Exception e) {
-                api.logging().logToError("[错误] 报错注入 " + paramLabel + " payload=" + poc + ": " + e.getMessage());
+                log("[错误] 报错注入 " + paramLabel + " payload=" + poc + ": " + e.getMessage());
             }
         }
         return results;

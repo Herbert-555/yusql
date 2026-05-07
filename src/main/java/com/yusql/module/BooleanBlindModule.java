@@ -11,19 +11,31 @@ import com.yusql.mutate.RequestBuilder;
 
 import java.nio.charset.StandardCharsets;
 import java.util.*;
+import java.util.function.Consumer;
 
 public class BooleanBlindModule {
     private final MontoyaApi api;
     private final ResponseComparator comparator;
     private final Normalizer normalizer;
     private final int lengthDiffAbs;
+    private final Consumer<String> logCb;
 
     public BooleanBlindModule(MontoyaApi api, ResponseComparator comparator,
-                              Normalizer normalizer, int lengthDiffAbs) {
+                              Normalizer normalizer, int lengthDiffAbs,
+                              Consumer<String> logCb) {
         this.api = api;
         this.comparator = comparator;
         this.normalizer = normalizer;
         this.lengthDiffAbs = lengthDiffAbs;
+        this.logCb = logCb;
+    }
+
+    private void log(String msg) {
+        if (logCb != null) {
+            try { logCb.accept(msg); } catch (Exception ignore) {}
+        } else {
+            api.logging().logToOutput(msg);
+        }
     }
 
     /** Execute V5 short-circuit boolean blind flow. Returns list of LogEntry results. */
@@ -41,7 +53,6 @@ public class BooleanBlindModule {
             LogEntry r1Entry = sendAndAnalyze("'", "R1", builder, tp, parentMd5, r0Len);
             results.add(r1Entry);
             if (r1Entry == null) {
-                api.logging().logToOutput("[布尔] " + paramLabel + " R1 发送失败，结束布尔流程");
                 return results;
             }
 
@@ -59,19 +70,14 @@ public class BooleanBlindModule {
 
             // If R1 has NO change vs R0, stop
             if (!r1Changed) {
-                api.logging().logToOutput("[布尔] " + paramLabel +
-                    " R1与R0去噪后无变化 → 跳过R3/R2，布尔流程结束");
                 finalizeEntryColor(r1Entry);
                 return results;
             }
-
-            api.logging().logToOutput("[布尔] " + paramLabel + " R1与R0去噪后有变化 → 继续发送R3");
 
             // Step 2: R1 has change, send R3 (3 single quotes = ''')
             LogEntry r3Entry = sendAndAnalyze("'''", "R3", builder, tp, parentMd5, r0Len);
             results.add(r3Entry);
             if (r3Entry == null) {
-                api.logging().logToOutput("[布尔] " + paramLabel + " R3 发送失败，结束布尔流程");
                 return results;
             }
 
@@ -89,20 +95,15 @@ public class BooleanBlindModule {
 
             // If R1 != R3, stop
             if (!r1SameR3) {
-                api.logging().logToOutput("[布尔] " + paramLabel +
-                    " R1与R3去噪后不同 → 跳过R2，布尔流程结束");
                 finalizeEntryColor(r1Entry);
                 finalizeEntryColor(r3Entry);
                 return results;
             }
 
-            api.logging().logToOutput("[布尔] " + paramLabel + " R1与R3去噪后相同 → 继续发送R2");
-
             // Step 3: R1==R3, send R2 (2 single quotes = '')
             LogEntry r2Entry = sendAndAnalyze("''", "R2", builder, tp, parentMd5, r0Len);
             results.add(r2Entry);
             if (r2Entry == null) {
-                api.logging().logToOutput("[布尔] " + paramLabel + " R2 发送失败");
                 return results;
             }
 
@@ -119,18 +120,14 @@ public class BooleanBlindModule {
             }
 
             if (r2DifferentFromR1) {
-                api.logging().logToOutput("[布尔] " + paramLabel +
-                    " ★ 布尔盲注成立: R1≠R0, R1=R3, R2≠R1/R3");
                 updateBoolResults(results, r1Entry, r3Entry, r2Entry, r0Len);
             } else {
-                api.logging().logToOutput("[布尔] " + paramLabel +
-                    " R2与R1/R3相同 → 非布尔盲注(类型限制/异常响应)");
                 finalizeEntryColor(r1Entry);
                 finalizeEntryColor(r3Entry);
                 finalizeEntryColor(r2Entry);
             }
         } catch (Exception e) {
-            api.logging().logToError("[错误] 布尔注入 " + paramLabel + ": " + e.getMessage());
+            log("[错误] 布尔注入 " + paramLabel + ": " + e.getMessage());
         }
         return results;
     }
@@ -174,13 +171,6 @@ public class BooleanBlindModule {
                 colorLevel = 0;
             }
 
-            api.logging().logToOutput("[布尔] " + tp.displayPath() +
-                " " + stepName + " payload='" + payload + "'" +
-                " → 长度" + bodyLen +
-                " 用时" + reqTime + "ms" +
-                " 状态码" + statusCode +
-                (hasError ? " [报错命中]" : hasLenDiff ? " [" + change + "]" : ""));
-
             LogEntry entry = new LogEntry(tp.displayPath(), payload, change,
                 bodyLen, reqTime, String.valueOf(statusCode), testType,
                 reqBytes, respBytes, builder.getOriginalBytes(), null, parentMd5, 0,
@@ -188,7 +178,7 @@ public class BooleanBlindModule {
             entry.setColorLevel(colorLevel);
             return entry;
         } catch (Exception e) {
-            api.logging().logToError("[错误] 布尔注入 " + stepName + " " + tp.displayPath() + ": " + e.getMessage());
+            log("[错误] 布尔注入 " + stepName + " " + tp.displayPath() + ": " + e.getMessage());
             return null;
         }
     }

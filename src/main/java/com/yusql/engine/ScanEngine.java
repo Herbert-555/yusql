@@ -64,13 +64,16 @@ public class ScanEngine {
         normalizer.setRemoveWs(config.isRemoveWhitespace());
         comparator = new ResponseComparator(normalizer, config.getErrorPatterns(),
             config.getSimilarityThreshold(), config.getLengthDiffRatio(), config.getLengthDiffAbs());
+        Consumer<String> moduleLogCb = msg -> {
+            if (msg != null && msg.startsWith("[错误]")) log(msg);
+        };
         errorMod = new ErrorInjectionModule(api, comparator, config.getErrorPocs(),
-            config.getLengthDiffAbs(), normalizer);
-        booleanMod = new BooleanBlindModule(api, comparator, normalizer, config.getLengthDiffAbs());
+            config.getLengthDiffAbs(), normalizer, moduleLogCb);
+        booleanMod = new BooleanBlindModule(api, comparator, normalizer, config.getLengthDiffAbs(), moduleLogCb);
         orderMod = new OrderTestModule(api, comparator, config.getAppendParams(),
-            config.getAppendParamGroups(), config.getLengthDiffAbs(), normalizer);
+            config.getAppendParamGroups(), config.getLengthDiffAbs(), normalizer, moduleLogCb);
         orderInjMod = new OrderInjectionModule(api, normalizer,
-            config.getOrderInjectionParams());
+            config.getOrderInjectionParams(), moduleLogCb);
         queue.setMax(config.getMaxQueueSize());
     }
 
@@ -210,19 +213,23 @@ public class ScanEngine {
     }
 
     private void process(ScanTask task) {
+        String url = "";
         try {
             RequestBuilder builder = new RequestBuilder(task.getRequest(), task.getHttpService());
             if (config.isEnableUrlEncodeChars()) {
                 builder.setUrlEncodeChars(config.getUrlEncodeChars());
             }
-            String url = builder.getUrl();
+            url = builder.getUrl();
             String method = builder.getMethod();
+            log("[流程] process() 开始: " + method + " " + url);
 
             // Parse parameters
             ParameterParser pp = new ParameterParser(method, url, builder.getBody(),
                 builder.getContentType(), config.isEnableJsonValue(), config.isEnableJsonInParam());
             List<TestPoint> points = filterManager.filter(pp.findAll());
 
+            log("[流程] 解析到 " + points.size() + " 个测试点, type分布: "
+                + points.stream().map(p -> p.getParamType().name()).distinct().toList());
             // Interface-level dedup
             List<String> paramKeys = new ArrayList<>();
             for (TestPoint tp : points) paramKeys.add(tp.dedupKey());
@@ -257,8 +264,13 @@ public class ScanEngine {
                 scanUpdateCb.accept(r0Update);
             }
 
+            log("[流程] R0完成, 开始参数测试, 模块开关: 布尔=" + config.isEnableBoolean()
+                + " 报错=" + config.isEnableError() + " 追加=" + config.isEnableOrder()
+                + " 排序=" + config.isEnableOrderInjection());
+
             // Execute per parameter: boolean → error
             boolean hasRed = false, hasYellow = false, hasBlue = false, hasOrderInj = false;
+            List<String> resultLogs = new ArrayList<>();
 
             for (TestPoint tp : points) {
                 if (!running) break;
@@ -280,12 +292,7 @@ public class ScanEngine {
                                 else if (cl >= 2) hasYellow = true;
                                 else if (cl >= 1) hasBlue = true;
 
-                                log("[布尔] " + paramLabel + " " + r.getChange() +
-                                    " payload=" + r.getDisplayPayload() +
-                                    " → 长度" + r.getResponseLength() +
-                                    " 用时" + r.getResponseTime() + "ms" +
-                                    " 状态码" + r.getStatusCode() +
-                                    " 类型=" + r.getTestType());
+                                resultLogs.add(formatPayloadResult("布尔", r));
                             }
                         }
                     } catch (Exception e) {
@@ -306,12 +313,7 @@ public class ScanEngine {
                                 if (cl >= 3) hasRed = true;
                                 else if (cl >= 1) hasBlue = true;
 
-                                log("[报错] " + paramLabel + " " + r.getChange() +
-                                    " payload=" + r.getDisplayPayload() +
-                                    " → 长度" + r.getResponseLength() +
-                                    " 用时" + r.getResponseTime() + "ms" +
-                                    " 状态码" + r.getStatusCode() +
-                                    " 类型=" + r.getTestType());
+                                resultLogs.add(formatPayloadResult("报错", r));
                             }
                         }
                     } catch (Exception e) {
@@ -350,13 +352,7 @@ public class ScanEngine {
                                     else if (cl >= 2) { hasYellow = true; hasOrderInj = true; }
                                     else if (cl >= 1) hasBlue = true;
 
-                                    log("[排序-单独] " + r.getParameter() +
-                                        " payload=" + r.getDisplayPayload() +
-                                        " " + r.getChange() +
-                                        " → 长度" + r.getResponseLength() +
-                                        " 用时" + r.getResponseTime() + "ms" +
-                                        " 状态码" + r.getStatusCode() +
-                                        " 类型=" + r.getTestType());
+                                    resultLogs.add(formatPayloadResult("排序-单独", r));
                                 }
                             }
                         } catch (Exception e) {
@@ -379,13 +375,7 @@ public class ScanEngine {
                                     else if (cl >= 2) { hasYellow = true; hasOrderInj = true; }
                                     else if (cl >= 1) hasBlue = true;
 
-                                    log("[排序-单独] " + r.getParameter() +
-                                        " payload=" + r.getDisplayPayload() +
-                                        " " + r.getChange() +
-                                        " → 长度" + r.getResponseLength() +
-                                        " 用时" + r.getResponseTime() + "ms" +
-                                        " 状态码" + r.getStatusCode() +
-                                        " 类型=" + r.getTestType());
+                                    resultLogs.add(formatPayloadResult("排序-单独", r));
                                 }
                             }
                         } catch (Exception e) {
@@ -408,13 +398,7 @@ public class ScanEngine {
                             if (cl >= 3) hasRed = true;
                             else if (cl >= 1) hasBlue = true;
 
-                            log("[追加] " + r.getParameter() +
-                                " payload=" + r.getDisplayPayload() +
-                                " " + r.getChange() +
-                                " → 长度" + r.getResponseLength() +
-                                " 用时" + r.getResponseTime() + "ms" +
-                                " 状态码" + r.getStatusCode() +
-                                " 类型=" + r.getTestType());
+                            resultLogs.add(formatPayloadResult("追加", r));
                         }
                     }
                 } catch (Exception e) {
@@ -437,19 +421,20 @@ public class ScanEngine {
                             else if (cl >= 2) { hasYellow = true; hasOrderInj = true; }
                             else if (cl >= 1) hasBlue = true;
 
-                            log("[排序] " + r.getParameter() +
-                                " payload=" + r.getDisplayPayload() +
-                                " " + r.getChange() +
-                                " → 长度" + r.getResponseLength() +
-                                " 用时" + r.getResponseTime() + "ms" +
-                                " 状态码" + r.getStatusCode() +
-                                " 类型=" + r.getTestType());
+                            resultLogs.add(formatPayloadResult("排序", r));
                         }
                     }
                 } catch (Exception e) {
                     log("[错误] 排序注入异常: " + e.getMessage());
                 }
             }
+
+            if (!resultLogs.isEmpty()) {
+                log("[结果] " + method + " " + url + " → " + String.join("；", resultLogs));
+            }
+
+            log("[流程] 参数测试完成, hasRed=" + hasRed + " hasYellow=" + hasYellow
+                + " hasBlue=" + hasBlue + " hasOrderInj=" + hasOrderInj);
 
             // Finalize scan entry state and color
             String finalState;
@@ -490,7 +475,10 @@ public class ScanEngine {
             state.incScanned();
 
         } catch (Exception e) {
-            log("[错误] 处理异常: " + e.getMessage());
+            String detail = e.getMessage();
+            if (detail == null) detail = e.getClass().getName();
+            log("[错误] 处理异常: " + detail + " (type=" + e.getClass().getSimpleName() + ", url=" + url + ")");
+            e.printStackTrace();
             state.incSkipped();
         }
     }
@@ -498,6 +486,16 @@ public class ScanEngine {
     /** Build a minimal LogEntry for updating an existing scan entry via dataMd5 */
     private LogEntry buildUpdateEntry(String dataMd5, String state, int responseLength, int colorLevel) {
         return new LogEntry(dataMd5, state, responseLength, colorLevel);
+    }
+
+    private String formatPayloadResult(String module, LogEntry r) {
+        return "[" + module + "] " + r.getParameter() +
+            " payload=" + r.getDisplayPayload() +
+            " " + r.getChange() +
+            " → 长度" + r.getResponseLength() +
+            " 用时" + r.getResponseTime() + "ms" +
+            " 状态码" + r.getStatusCode() +
+            " 类型=" + r.getTestType();
     }
 
     private void log(String msg) {

@@ -9,6 +9,7 @@ import com.yusql.model.*;
 import com.yusql.mutate.RequestBuilder;
 
 import java.util.*;
+import java.util.function.Consumer;
 
 public class OrderTestModule {
     private final MontoyaApi api;
@@ -17,16 +18,27 @@ public class OrderTestModule {
     private final Map<String,Integer> paramGroups;
     private final int lengthDiffAbs;
     private final Normalizer normalizer;
+    private final Consumer<String> logCb;
 
     public OrderTestModule(MontoyaApi api, ResponseComparator comparator,
                            List<Map.Entry<String,String>> appendParams, Map<String,Integer> paramGroups,
-                           int lengthDiffAbs, Normalizer normalizer) {
+                           int lengthDiffAbs, Normalizer normalizer,
+                           Consumer<String> logCb) {
         this.api = api;
         this.comparator = comparator;
         this.appendParams = appendParams != null ? appendParams : new ArrayList<>();
         this.paramGroups = paramGroups != null ? paramGroups : new LinkedHashMap<>();
         this.lengthDiffAbs = lengthDiffAbs;
         this.normalizer = normalizer;
+        this.logCb = logCb;
+    }
+
+    private void log(String msg) {
+        if (logCb != null) {
+            try { logCb.accept(msg); } catch (Exception ignore) {}
+        } else {
+            api.logging().logToOutput(msg);
+        }
     }
 
     /** Group params by group number, send each group bundled together via buildOrderBatch.
@@ -36,7 +48,7 @@ public class OrderTestModule {
                                 byte[] r0Request, byte[] r0Response, int r0Len) {
         List<LogEntry> results = new ArrayList<>();
         if (appendParams.isEmpty()) {
-            api.logging().logToOutput("[追加] 无追加参数配置，跳过");
+            log("[追加] 无追加参数配置，跳过");
             return results;
         }
 
@@ -111,7 +123,7 @@ public class OrderTestModule {
                 String.valueOf(statusCode), r0Len, reqBytes, respBytes,
                 r0Request, r0Response, parentMd5, builder);
         } catch (Exception e) {
-            api.logging().logToError("[错误] 追加 " + paramLabel + ": " + e.getMessage());
+            log("[错误] 追加 " + paramLabel + ": " + e.getMessage());
             return null;
         }
     }
@@ -125,7 +137,7 @@ public class OrderTestModule {
         if (comparator.hasErrorHit(respBody)) {
             List<String[]> hits = comparator.matchErrors(respBody);
             String hitRegex = hits.isEmpty() ? "" : hits.get(0)[0];
-            api.logging().logToOutput("[追加] " + paramLabel +
+            log("[追加] " + paramLabel +
                 " payload=" + truncate(payload) +
                 " → 报错命中: " + hitRegex +
                 " 长度" + bodyLen +
@@ -144,7 +156,7 @@ public class OrderTestModule {
         int lenDiff = Math.abs(bodyLen - r0Len);
         if (lenDiff > lengthDiffAbs) {
             String change = "长度" + (bodyLen > r0Len ? "+" : "") + (bodyLen - r0Len);
-            api.logging().logToOutput("[追加] " + paramLabel +
+            log("[追加] " + paramLabel +
                 " payload=" + truncate(payload) +
                 " → " + change +
                 " 长度" + bodyLen +
@@ -160,7 +172,7 @@ public class OrderTestModule {
         }
 
         // 3. No change
-        api.logging().logToOutput("[追加] " + paramLabel +
+        log("[追加] " + paramLabel +
             " payload=" + truncate(payload) +
             " → 无变化" +
             " 长度" + bodyLen +

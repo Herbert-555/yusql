@@ -10,17 +10,29 @@ import com.yusql.mutate.RequestBuilder;
 
 import java.nio.charset.StandardCharsets;
 import java.util.*;
+import java.util.function.Consumer;
 
 public class OrderInjectionModule {
     private final MontoyaApi api;
     private final Normalizer normalizer;
     private final Set<String> orderInjectionParams;
+    private final Consumer<String> logCb;
 
     public OrderInjectionModule(MontoyaApi api, Normalizer normalizer,
-                                 Set<String> orderInjectionParams) {
+                                 Set<String> orderInjectionParams,
+                                 Consumer<String> logCb) {
         this.api = api;
         this.normalizer = normalizer;
         this.orderInjectionParams = orderInjectionParams != null ? orderInjectionParams : new LinkedHashSet<>();
+        this.logCb = logCb;
+    }
+
+    private void log(String msg) {
+        if (logCb != null) {
+            try { logCb.accept(msg); } catch (Exception ignore) {}
+        } else {
+            api.logging().logToOutput(msg);
+        }
     }
 
     /**
@@ -93,7 +105,6 @@ public class OrderInjectionModule {
             }
         }
         if (oiParamNames.isEmpty()) {
-            api.logging().logToOutput("[排序] " + paramLabel + " 无排序注入测试参数，跳过");
             return allEntries;
         }
 
@@ -111,7 +122,7 @@ public class OrderInjectionModule {
 
         // R0 vs R1 normalized
         if (normalizedEq(r0Body, r1Body, oiParamNames, groupParams.keySet())) {
-            api.logging().logToOutput("[排序] " + paramLabel + " R0=R1 → 不存在排序注入");
+            log("[排序] " + paramLabel + " R0=R1 → 不存在排序注入");
             return allEntries;
         }
 
@@ -124,7 +135,7 @@ public class OrderInjectionModule {
 
         // R2 vs R1 normalized (clean: paramNames + ["1"])
         if (normalizedEq(r2Body, r1Body, oiParamNames, null, "1")) {
-            api.logging().logToOutput("[排序] " + paramLabel + " R2=R1 → 不存在排序注入");
+            log("[排序] " + paramLabel + " R2=R1 → 不存在排序注入");
             return allEntries;
         }
 
@@ -137,47 +148,47 @@ public class OrderInjectionModule {
 
         // R3 vs R2 normalized (clean: paramNames + ["1", "1,aaa"])
         if (normalizedEq(r3Body, r2Body, oiParamNames, null, "1", "1,aaa")) {
-            api.logging().logToOutput("[排序] " + paramLabel + " R3=R2 → 不存在排序注入");
+            log("[排序] " + paramLabel + " R3=R2 → 不存在排序注入");
             return allEntries;
         }
 
-        // --- R4: values → 1,CURRENT_TIMESTAMP ---
-        Map<String,String> r4Params = buildReplacedParams(groupParams, oiParamNames, "1,CURRENT_TIMESTAMP");
-        LogEntry r4 = sendStepStrict(builder, r4Params, "R4(→1,CURRENT_TIMESTAMP)", paramLabel, parentMd5, jsonOuterKey, jsonEncoded);
+        // --- R4: values → 1,current_timestamp ---
+        Map<String,String> r4Params = buildReplacedParams(groupParams, oiParamNames, "1,current_timestamp");
+        LogEntry r4 = sendStepStrict(builder, r4Params, "R4(→1,current_timestamp)", paramLabel, parentMd5, jsonOuterKey, jsonEncoded);
         if (r4 == null) return allEntries;
         allEntries.add(r4);
         String r4Body = extractBody(new String(r4.getResponse(), StandardCharsets.UTF_8));
 
-        // R4 vs R2 (clean: paramNames + ["1", "1,CURRENT_TIMESTAMP"])
-        boolean r4Hit = normalizedEq(r4Body, r2Body, oiParamNames, null, "1", "1,CURRENT_TIMESTAMP");
+        // R4 vs R2 (clean: paramNames + ["1", "1,current_timestamp"])
+        boolean r4Hit = normalizedEq(r4Body, r2Body, oiParamNames, null, "1", "1,current_timestamp");
 
         // --- Step 4: check for regular hit ---
         if (r4Hit) {
-            api.logging().logToOutput("[排序] ★ " + paramLabel + " 排序注入成立 (常规命中): R4==R2");
+            log("[排序] ★ " + paramLabel + " 排序注入成立 (常规命中): R4==R2");
             markAllOrderInj(allEntries, "排序注入:常规命中", oiParamNames);
             return allEntries;
         }
 
         // --- Check for comma filtering fallback ---
-        boolean r4NeedFallback = normalizedEq(r4Body, r3Body, oiParamNames, null, "1,aaa", "1,CURRENT_TIMESTAMP");
+        boolean r4NeedFallback = normalizedEq(r4Body, r3Body, oiParamNames, null, "1,aaa", "1,current_timestamp");
 
         if (!r4NeedFallback) {
-            api.logging().logToOutput("[排序] " + paramLabel + " R4≠R2且R4≠R3 → 不存在排序注入");
+            log("[排序] " + paramLabel + " R4≠R2且R4≠R3 → 不存在排序注入");
             return allEntries;
         }
 
         // --- Step 5A: comma bypass ---
-        api.logging().logToOutput("[排序] " + paramLabel + " R4==R3，疑似逗号过滤 → 进入兜底检测");
+        log("[排序] " + paramLabel + " R4==R3，疑似逗号过滤 → 进入兜底检测");
 
-        // R5: values → CURRENT_TIMESTAMP
-        Map<String,String> r5Params = buildReplacedParams(groupParams, oiParamNames, "CURRENT_TIMESTAMP");
-        LogEntry r5 = sendStepStrict(builder, r5Params, "R5(→CURRENT_TIMESTAMP)", paramLabel, parentMd5, jsonOuterKey, jsonEncoded);
+        // R5: values → current_timestamp
+        Map<String,String> r5Params = buildReplacedParams(groupParams, oiParamNames, "current_timestamp");
+        LogEntry r5 = sendStepStrict(builder, r5Params, "R5(→current_timestamp)", paramLabel, parentMd5, jsonOuterKey, jsonEncoded);
         if (r5 == null) return allEntries;
         allEntries.add(r5);
         String r5Body = extractBody(new String(r5.getResponse(), StandardCharsets.UTF_8));
 
-        if (!normalizedEq(r5Body, r2Body, oiParamNames, null, "1", "CURRENT_TIMESTAMP")) {
-            api.logging().logToOutput("[排序] " + paramLabel + " R5≠R2 → 不存在排序注入");
+        if (!normalizedEq(r5Body, r2Body, oiParamNames, null, "1", "current_timestamp")) {
+            log("[排序] " + paramLabel + " R5≠R2 → 不存在排序注入");
             return allEntries;
         }
 
@@ -189,15 +200,15 @@ public class OrderInjectionModule {
         String r6Body = extractBody(new String(r6.getResponse(), StandardCharsets.UTF_8));
 
         boolean r6neR2 = !normalizedEq(r6Body, r2Body, oiParamNames, null, "1", "aaa");
-        boolean r6neR5 = !normalizedEq(r6Body, r5Body, oiParamNames, null, "CURRENT_TIMESTAMP", "aaa");
+        boolean r6neR5 = !normalizedEq(r6Body, r5Body, oiParamNames, null, "current_timestamp", "aaa");
 
         if (r6neR2 && r6neR5) {
-            api.logging().logToOutput("[排序] ★ " + paramLabel + " 排序注入成立 (逗号过滤兜底)");
+            log("[排序] ★ " + paramLabel + " 排序注入成立 (逗号过滤兜底)");
             markAllOrderInj(allEntries, "排序注入:逗号过滤兜底", oiParamNames);
             return allEntries;
         }
 
-        api.logging().logToOutput("[排序] " + paramLabel + " R6未通过反证 → 不存在排序注入");
+        log("[排序] " + paramLabel + " R6未通过反证 → 不存在排序注入");
         return allEntries;
     }
 
@@ -252,7 +263,7 @@ public class OrderInjectionModule {
             int bodyLen = respBody.length();
             int statusCode = resp.statusCode();
 
-            api.logging().logToOutput("[排序] " + paramLabel + "-" + stepName +
+            log("[排序] " + paramLabel + "-" + stepName +
                 " → 长度" + bodyLen + " 用时" + reqTime + "ms 状态码" + statusCode);
 
             LogEntry entry = new LogEntry(paramLabel, stepName, stepName + "已发送",
@@ -262,7 +273,7 @@ public class OrderInjectionModule {
             entry.setColorLevel(0);
             return entry;
         } catch (Exception e) {
-            api.logging().logToError("[错误] 排序注入 " + paramLabel + "-" + stepName + ": " + e.getMessage());
+            log("[错误] 排序注入 " + paramLabel + "-" + stepName + ": " + e.getMessage());
             return null;
         }
     }
