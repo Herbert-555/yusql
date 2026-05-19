@@ -59,10 +59,12 @@ public class YuSQLConfig {
 
     public YuSQLConfig() {
         ensureDir();
+        resetNoiseRegexToDefaults();
         loadAll();
     }
     public Path dir() { return DIR; }
     private void ensureDir() { try { Files.createDirectories(DIR); } catch (IOException e) {} }
+    private void resetNoiseRegexToDefaults() { savePatterns(path("SQL_noise_regex.ini"), defaultNoisePatterns()); }
 
     // =========================================================================
     // Load all configs
@@ -403,16 +405,18 @@ public class YuSQLConfig {
 
     // --- V5 Default Noise Regex (14 patterns) ---
     private static final String[] V5_DEFAULT_NOISE_PATTERNS = {
-        "\\\\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\\\\b",
-        "\\\\b[0-9a-fA-F]{128}\\\\b","\\\\b[0-9a-fA-F]{64}\\\\b","\\\\b[0-9a-fA-F]{40}\\\\b","\\\\b[0-9a-fA-F]{32}\\\\b",
-        "\\\\b1\\\\d{12}\\\\b","\\\\b1\\\\d{9}\\\\b",
-        "\\\\b\\\\d{4}-\\\\d{2}-\\\\d{2}[ T]\\\\d{2}:\\\\d{2}:\\\\d{2}(?:\\\\.\\\\d{1,6})?(?:Z|[+-]\\\\d{2}:\\\\d{2})?\\\\b",
-        "\\\\beyJ[a-zA-Z0-9_-]{5,}\\\\.[a-zA-Z0-9_-]{10,}\\\\.[a-zA-Z0-9_-]{10,}\\\\b",
-        "(?i)(token|access[_-]?token|refresh[_-]?token|id[_-]?token|jwt)\\\\s*[:=]\\\\s*[\\\"']?[A-Za-z0-9._+/=-]{8,}",
-        "(?i)(sessionid|session_id|jsessionid|phpsessid)\\\\s*[:=]\\\\s*[\\\"']?[A-Za-z0-9._-]{6,}",
-        "(?i)(traceId|requestId|reqId|nonce|csrf)\\\\s*[:=]\\\\s*[\\\"']?[^\\\"',&\\\\s]+",
-        "(?i)\\\\bAuthorization\\\\b\\\\s*:\\\\s*\\\\bBearer\\\\b\\\\s+[A-Za-z0-9._+/=-]{8,}",
-        "(?i)\\\\b(sessionid|session_id|JSESSIONID|PHPSESSID)=([^;,\\\\s\\\"]+)"
+        "\\b\\d{4}-\\d{2}-\\d{2}[ T]\\d{2}:\\d{2}:\\d{2}.*?",
+        "\"[a-zA-Z]+\":1[7-9]\\d{7,10}",
+        "\\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\\b",
+        "\\b[0-9a-fA-F]{128}\\b","\\b[0-9a-fA-F]{64}\\b","\\b[0-9a-fA-F]{40}\\b","\\b[0-9a-fA-F]{32}\\b",
+        "\\b1\\d{12}\\b","\\b1\\d{9}\\b",
+        "\\b\\d{4}-\\d{2}-\\d{2}[ T]\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,6})?(?:Z|[+-]\\d{2}:\\d{2})?\\b",
+        "\\beyJ[a-zA-Z0-9_-]{5,}\\.[a-zA-Z0-9_-]{10,}\\.[a-zA-Z0-9_-]{10,}\\b",
+        "(?i)(token|access[_-]?token|refresh[_-]?token|id[_-]?token|jwt)\\s*[:=]\\s*[\"']?[A-Za-z0-9._+/=-]{8,}",
+        "(?i)(sessionid|session_id|jsessionid|phpsessid)\\s*[:=]\\s*[\"']?[A-Za-z0-9._-]{6,}",
+        "(?i)(traceId|requestId|reqId|nonce|csrf)\\s*[:=]\\s*[\"']?[^\"',&\\s]+",
+        "(?i)\\bAuthorization\\b\\s*:\\s*\\bBearer\\b\\s+[A-Za-z0-9._+/=-]{8,}",
+        "(?i)\\b(sessionid|session_id|JSESSIONID|PHPSESSID)=([^;,\\s\"]+)"
     };
 
     // --- V5 Default Param Blacklist (12 patterns) ---

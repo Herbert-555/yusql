@@ -6,6 +6,8 @@ import burp.api.montoya.http.message.requests.HttpRequest;
 import burp.api.montoya.http.message.responses.HttpResponse;
 import burp.api.montoya.ui.editor.HttpRequestEditor;
 import burp.api.montoya.ui.editor.HttpResponseEditor;
+import com.yusql.compare.Normalizer;
+import com.yusql.compare.TextSimilarity;
 import com.yusql.config.YuSQLConfig;
 import com.yusql.engine.ScanEngine;
 import com.yusql.filter.FilterManager;
@@ -40,6 +42,7 @@ public class YuSQLTab extends JPanel {
     // Data stores (matching DouSql pattern exactly)
     public final List<LogEntry> scanResults = Collections.synchronizedList(new ArrayList<>());
     public final List<LogEntry> payloadDetails = Collections.synchronizedList(new ArrayList<>());
+    private final List<LogEntry> filteredPayloadCache = new ArrayList<>();
 
     // Current selection state
     private String currentSelectedScanMd5;
@@ -60,6 +63,11 @@ public class YuSQLTab extends JPanel {
     // HTTP editors
     private HttpRequestEditor requestEditor;
     private HttpResponseEditor responseEditor;
+    private Component responseEditorComponent;
+    private JTextArea normalizedResponseArea;
+    private JPanel responsePanel;
+    private boolean normalizedResponseTabInstalled;
+    private int normalizedResponseTabInstallAttempts;
     private final HttpService dummyService;
 
     // Control panel components
@@ -184,10 +192,12 @@ public class YuSQLTab extends JPanel {
         editorsSplit.setLeftComponent(reqPanel);
 
         responseEditor = api.userInterface().createHttpResponseEditor();
-        JPanel respPanel = new JPanel(new BorderLayout());
-        respPanel.setBorder(BorderFactory.createTitledBorder("原始响应"));
-        respPanel.add(responseEditor.uiComponent(), BorderLayout.CENTER);
-        editorsSplit.setRightComponent(respPanel);
+        responseEditorComponent = responseEditor.uiComponent();
+        responsePanel = new JPanel(new BorderLayout());
+        responsePanel.setBorder(BorderFactory.createTitledBorder("原始响应"));
+        responsePanel.add(responseEditorComponent, BorderLayout.CENTER);
+        SwingUtilities.invokeLater(this::installNormalizedResponseTab);
+        editorsSplit.setRightComponent(responsePanel);
 
         editorsSplit.setResizeWeight(0.5);
         return editorsSplit;
@@ -214,7 +224,7 @@ public class YuSQLTab extends JPanel {
 
         // Title
         gbc.gridy = 0;
-        panel.add(new JLabel("YuSQL 2.1.5 - 以下配置会自动保存至配置文件"), gbc);
+        panel.add(new JLabel("YuSQL 2.1.6 - 以下配置会自动保存至配置文件"), gbc);
 
         // Enable plugin
         enableChk = new JCheckBox("启动插件", true);
@@ -716,7 +726,8 @@ public class YuSQLTab extends JPanel {
         payloadTable.getColumnModel().getColumn(3).setPreferredWidth(120); // 变化
         payloadTable.getColumnModel().getColumn(4).setPreferredWidth(50);  // 用时
         payloadTable.getColumnModel().getColumn(5).setPreferredWidth(50);  // 响应码
-        payloadTable.getColumnModel().getColumn(6).setPreferredWidth(70);  // 测试类型
+        payloadTable.getColumnModel().getColumn(6).setPreferredWidth(60);  // 相似度
+        payloadTable.getColumnModel().getColumn(7).setPreferredWidth(70);  // 测试类型
 
         // Row click → show test req/resp
         payloadTable.getSelectionModel().addListSelectionListener(e -> {
@@ -788,8 +799,10 @@ public class YuSQLTab extends JPanel {
             if (entry.getDataMd5().equals(currentSelectedScanMd5)) {
                 currentSelectedScanMd5 = null;
                 currentDisplayedItem = null;
+                refreshFilteredPayloadCache();
                 requestEditor.setRequest(HttpRequest.httpRequest(dummyService, byteArray(new byte[0])));
                 responseEditor.setResponse(HttpResponse.httpResponse(byteArray(new byte[0])));
+                clearNormalizedResponse();
             }
         });
         popup.add(deleteItem);
@@ -808,6 +821,7 @@ public class YuSQLTab extends JPanel {
         JMenuItem deleteItem = new JMenuItem("删除此记录");
         deleteItem.addActionListener(ae -> {
             payloadDetails.remove(entry);
+            filteredPayloadCache.remove(entry);
             payloadModel.fireTableDataChanged();
             // Recalculate scan entry color
             recalcScanEntryColor(entry.getDataMd5());
@@ -816,8 +830,147 @@ public class YuSQLTab extends JPanel {
         popup.show(payloadTable, e.getX(), e.getY());
     }
 
+    private JComponent createNormalizedResponsePanel() {
+        if (normalizedResponseArea == null) {
+            normalizedResponseArea = new JTextArea();
+            normalizedResponseArea.setEditable(false);
+            normalizedResponseArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
+            normalizedResponseArea.setLineWrap(true);
+            normalizedResponseArea.setWrapStyleWord(false);
+        }
+        return new JScrollPane(normalizedResponseArea);
+    }
+
+    private void installNormalizedResponseTab() {
+        if (normalizedResponseTabInstalled || responseEditorComponent == null) return;
+        JTabbedPane tabs = findResponseEditorTabs(responseEditorComponent);
+        if (tabs == null) {
+            normalizedResponseTabInstallAttempts++;
+            if (normalizedResponseTabInstallAttempts <= 10) {
+                SwingUtilities.invokeLater(this::installNormalizedResponseTab);
+            }
+            return;
+        }
+        if (hasTab(tabs, "归一化响应")) {
+            normalizedResponseTabInstalled = true;
+            return;
+        }
+        int renderIndex = findRenderTabIndex(tabs);
+        int insertIndex = renderIndex >= 0 ? renderIndex + 1 : tabs.getTabCount();
+        tabs.insertTab("归一化响应", null, createNormalizedResponsePanel(), null, insertIndex);
+        normalizedResponseTabInstalled = true;
+    }
+
+    private void updateNormalizedResponse(byte[] responseBytes) {
+        if (!normalizedResponseTabInstalled) {
+            normalizedResponseTabInstallAttempts = 0;
+            installNormalizedResponseTab();
+        }
+        if (normalizedResponseArea == null) return;
+        if (responseBytes == null || responseBytes.length == 0) {
+            clearNormalizedResponse();
+            return;
+        }
+        try {
+            HttpResponse response = HttpResponse.httpResponse(byteArray(responseBytes));
+            String body = response.bodyToString();
+            String normalizedBody = createCurrentNormalizer().normalize(body);
+            normalizedResponseArea.setText(normalizedBody);
+            normalizedResponseArea.setCaretPosition(0);
+        } catch (Exception e) {
+            clearNormalizedResponse();
+        }
+    }
+
+    private void clearNormalizedResponse() {
+        if (normalizedResponseArea != null) normalizedResponseArea.setText("");
+    }
+
+    private Normalizer createCurrentNormalizer() {
+        Normalizer normalizer = new Normalizer();
+        normalizer.setNoise(config.getNoisePatterns());
+        normalizer.setRemoveWs(config.isRemoveWhitespace());
+        return normalizer;
+    }
+
+    private JTabbedPane findResponseEditorTabs(Component component) {
+        List<JTabbedPane> candidates = new ArrayList<>();
+        collectTabbedPanes(component, candidates);
+        JTabbedPane fallback = null;
+        for (JTabbedPane tabs : candidates) {
+            if (fallback == null) fallback = tabs;
+            for (int i = 0; i < tabs.getTabCount(); i++) {
+                String title = tabs.getTitleAt(i);
+                if (title == null) continue;
+                String lower = title.toLowerCase(Locale.ROOT);
+                if (lower.contains("raw") || lower.contains("hex") || title.contains("美化") || title.contains("页面渲染")) {
+                    return tabs;
+                }
+            }
+        }
+        return fallback;
+    }
+
+    private void collectTabbedPanes(Component component, List<JTabbedPane> result) {
+        if (component instanceof JTabbedPane tabs) result.add(tabs);
+        if (component instanceof Container container) {
+            for (Component child : container.getComponents()) {
+                collectTabbedPanes(child, result);
+            }
+        }
+    }
+
+    private boolean hasTab(JTabbedPane tabs, String title) {
+        for (int i = 0; i < tabs.getTabCount(); i++) {
+            if (title.equals(tabs.getTitleAt(i))) return true;
+        }
+        return false;
+    }
+
+    private int findRenderTabIndex(JTabbedPane tabs) {
+        for (int i = 0; i < tabs.getTabCount(); i++) {
+            String title = tabs.getTitleAt(i);
+            if (title == null) continue;
+            String lower = title.toLowerCase(Locale.ROOT);
+            if (title.contains("页面渲染") || title.contains("渲染") || lower.contains("render")) return i;
+        }
+        return -1;
+    }
+
+    private String calculateSimilarityDisplay(LogEntry entry) {
+        byte[] baseResponse = findScanResponse(entry.getDataMd5());
+        byte[] testResponse = entry.getResponse();
+        if (baseResponse == null || testResponse == null) return "";
+        try {
+            Normalizer normalizer = createCurrentNormalizer();
+            String baseBody = normalizer.normalize(HttpResponse.httpResponse(byteArray(baseResponse)).bodyToString());
+            String testBody = normalizer.normalize(HttpResponse.httpResponse(byteArray(testResponse)).bodyToString());
+            int percent = (int) Math.round(TextSimilarity.levenshteinRatio(baseBody, testBody) * 100);
+            if (percent < 0) percent = 0;
+            if (percent > 100) percent = 100;
+            return percent + "%";
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
+    private byte[] findScanResponse(String dataMd5) {
+        if (dataMd5 == null) return null;
+        synchronized (scanResults) {
+            for (LogEntry entry : scanResults) {
+                if (dataMd5.equals(entry.getDataMd5())) return entry.getResponse();
+            }
+        }
+        return null;
+    }
+
+    private void setResponsePanelTitle(String title) {
+        if (responsePanel != null) responsePanel.setBorder(BorderFactory.createTitledBorder(title));
+    }
+
     private void updatePayloadDetailsForEntry(LogEntry scanEntry) {
         currentSelectedScanMd5 = scanEntry.getDataMd5();
+        refreshFilteredPayloadCache();
         payloadModel.fireTableDataChanged();
     }
 
@@ -832,10 +985,11 @@ public class YuSQLTab extends JPanel {
         }
         if (entry.getResponse() != null) {
             responseEditor.setResponse(HttpResponse.httpResponse(byteArray(entry.getResponse())));
-            ((JPanel)((JComponent)responseEditor.uiComponent()).getParent()).setBorder(
-                BorderFactory.createTitledBorder("原始响应"));
+            updateNormalizedResponse(entry.getResponse());
+            setResponsePanelTitle("原始响应");
         } else {
             responseEditor.setResponse(HttpResponse.httpResponse(byteArray(new byte[0])));
+            clearNormalizedResponse();
         }
     }
 
@@ -848,8 +1002,11 @@ public class YuSQLTab extends JPanel {
         }
         if (entry.getResponse() != null) {
             responseEditor.setResponse(HttpResponse.httpResponse(byteArray(entry.getResponse())));
-            ((JPanel)((JComponent)responseEditor.uiComponent()).getParent()).setBorder(
-                BorderFactory.createTitledBorder("测试响应"));
+            updateNormalizedResponse(entry.getResponse());
+            setResponsePanelTitle("测试响应");
+        } else {
+            responseEditor.setResponse(HttpResponse.httpResponse(byteArray(new byte[0])));
+            clearNormalizedResponse();
         }
     }
 
@@ -935,8 +1092,12 @@ public class YuSQLTab extends JPanel {
         });
 
         engine.setPayloadResultCallback(entry -> {
+            entry.setSimilarity(calculateSimilarityDisplay(entry));
             payloadDetails.add(entry);
             SwingUtilities.invokeLater(() -> {
+                if (currentSelectedScanMd5 == null || currentSelectedScanMd5.equals(entry.getDataMd5())) {
+                    filteredPayloadCache.add(entry);
+                }
                 payloadModel.fireTableDataChanged();
                 recalcScanEntryColor(entry.getDataMd5());
             });
@@ -967,21 +1128,28 @@ public class YuSQLTab extends JPanel {
 
     // --- Public helper ---
     private List<LogEntry> getFilteredPayloadDetails() {
-        if (currentSelectedScanMd5 == null) return new ArrayList<>(payloadDetails);
-        List<LogEntry> filtered = new ArrayList<>();
+        return filteredPayloadCache;
+    }
+
+    private void refreshFilteredPayloadCache() {
+        filteredPayloadCache.clear();
         synchronized (payloadDetails) {
+            if (currentSelectedScanMd5 == null) {
+                filteredPayloadCache.addAll(payloadDetails);
+                return;
+            }
             for (LogEntry entry : payloadDetails) {
                 if (currentSelectedScanMd5.equals(entry.getDataMd5())) {
-                    filtered.add(entry);
+                    filteredPayloadCache.add(entry);
                 }
             }
         }
-        return filtered;
     }
 
     public void clearAllResults() {
         scanResults.clear();
         payloadDetails.clear();
+        filteredPayloadCache.clear();
         currentSelectedScanMd5 = null;
         currentDisplayedItem = null;
         LogEntry.resetIdCounter();
@@ -990,6 +1158,7 @@ public class YuSQLTab extends JPanel {
             payloadModel.fireTableDataChanged();
             requestEditor.setRequest(HttpRequest.httpRequest(dummyService, byteArray(new byte[0])));
             responseEditor.setResponse(HttpResponse.httpResponse(byteArray(new byte[0])));
+            clearNormalizedResponse();
         });
     }
 
@@ -1030,10 +1199,10 @@ public class YuSQLTab extends JPanel {
     }
 
     class PayloadDetailTableModel extends AbstractTableModel {
-        private final String[] cols = {"参数", "payload", "返回包长度", "变化", "用时", "响应码", "测试类型"};
+        private final String[] cols = {"参数", "payload", "返回包长度", "变化", "用时", "响应码", "相似度", "测试类型"};
 
         @Override public int getRowCount() { return getFilteredPayloadDetails().size(); }
-        @Override public int getColumnCount() { return 7; }
+        @Override public int getColumnCount() { return 8; }
         @Override public String getColumnName(int col) { return cols[col]; }
 
         @Override
@@ -1048,7 +1217,8 @@ public class YuSQLTab extends JPanel {
                 case 3 -> e.getChange();
                 case 4 -> e.getResponseTime();
                 case 5 -> e.getStatusCode();
-                case 6 -> e.getTestType();
+                case 6 -> e.getSimilarity();
+                case 7 -> e.getTestType();
                 default -> "";
             };
         }

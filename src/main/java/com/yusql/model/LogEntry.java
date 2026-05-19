@@ -25,6 +25,7 @@ public class LogEntry {
     private String change;
     private int responseTime;
     private String statusCode;
+    private String similarity = "";
     private String testType;  // "Err", "Bool", "Len", "Err,Bool" or ""
 
     // HTTP message data
@@ -109,6 +110,7 @@ public class LogEntry {
     public String getChange() { return change; }
     public int getResponseTime() { return responseTime; }
     public String getStatusCode() { return statusCode; }
+    public String getSimilarity() { return similarity; }
     public String getTestType() { return testType; }
     public byte[] getRequest() { return request; }
     public byte[] getResponse() { return response; }
@@ -123,6 +125,7 @@ public class LogEntry {
     public void setState(String s) { this.state = s; }
     public void setResponseLength(int l) { this.responseLength = l; }
     public void setChange(String c) { this.change = c; }
+    public void setSimilarity(String s) { this.similarity = s != null ? s : ""; }
     public void setTestType(String t) { this.testType = t; }
     public void setColorLevel(int l) { this.colorLevel = l; }
     public void setRequest(byte[] r) { this.request = r; }

@@ -60,13 +60,6 @@ public class BooleanBlindModule {
             String r1Body = extractBody(new String(r1Entry.getResponse(), StandardCharsets.UTF_8));
             String r1Normalized = normalizer.normalize(r1Body);
             boolean r1Changed = !r1Normalized.equals(r0Normalized);
-            if (!r1Changed) {
-                ResponseFingerprint fpR0 = comparator.fingerprint(
-                    HttpResponse.httpResponse(ByteArray.byteArray(r0Response)));
-                ResponseFingerprint fpR1 = comparator.fingerprint(
-                    HttpResponse.httpResponse(ByteArray.byteArray(r1Entry.getResponse())));
-                r1Changed = comparator.isDifferentResponse(fpR0, fpR1);
-            }
 
             // If R1 has NO change vs R0, stop
             if (!r1Changed) {
@@ -85,13 +78,6 @@ public class BooleanBlindModule {
             String r3Body = extractBody(new String(r3Entry.getResponse(), StandardCharsets.UTF_8));
             String r3Normalized = normalizer.normalize(r3Body);
             boolean r1SameR3 = r1Normalized.equals(r3Normalized);
-            if (!r1SameR3) {
-                ResponseFingerprint fpR1 = comparator.fingerprint(
-                    HttpResponse.httpResponse(ByteArray.byteArray(r1Entry.getResponse())));
-                ResponseFingerprint fpR3 = comparator.fingerprint(
-                    HttpResponse.httpResponse(ByteArray.byteArray(r3Entry.getResponse())));
-                r1SameR3 = comparator.isSameResponse(fpR1, fpR3);
-            }
 
             // If R1 != R3, stop
             if (!r1SameR3) {
@@ -111,13 +97,6 @@ public class BooleanBlindModule {
             String r2Body = extractBody(new String(r2Entry.getResponse(), StandardCharsets.UTF_8));
             String r2Normalized = normalizer.normalize(r2Body);
             boolean r2DifferentFromR1 = !r2Normalized.equals(r1Normalized);
-            if (!r2DifferentFromR1) {
-                ResponseFingerprint fpR1 = comparator.fingerprint(
-                    HttpResponse.httpResponse(ByteArray.byteArray(r1Entry.getResponse())));
-                ResponseFingerprint fpR2 = comparator.fingerprint(
-                    HttpResponse.httpResponse(ByteArray.byteArray(r2Entry.getResponse())));
-                r2DifferentFromR1 = comparator.isDifferentResponse(fpR1, fpR2);
-            }
 
             if (r2DifferentFromR1) {
                 updateBoolResults(results, r1Entry, r3Entry, r2Entry, r0Len);
