@@ -64,6 +64,124 @@ public class RequestBuilder {
         };
     }
 
+    /** Replace param value entirely instead of appending. */
+    public HttpRequest buildReplace(TestPoint tp, String newValue) {
+        return switch (tp.getParamType()) {
+            case GET -> buildGetReplace(tp, newValue);
+            case POST_FORM -> buildPostFormReplace(tp, newValue);
+            case JSON_BODY -> buildJsonBodyReplace(tp, newValue);
+            case JSON_IN_PARAM -> buildJsonInParamReplace(tp, newValue);
+        };
+    }
+
+    private HttpRequest buildGetReplace(TestPoint tp, String newValue) {
+        String q = ParameterParser.getQuery(url);
+        if (q == null) return originalRequest;
+        String nq = replaceQueryParam(q, tp.getParamName(), urlEncode(newValue));
+        String nu = ParameterParser.stripQuery(url) + "?" + nq;
+        return HttpRequest.httpRequest(httpService, rebuildRequest(nu, body));
+    }
+
+    private HttpRequest buildPostFormReplace(TestPoint tp, String newValue) {
+        byte[] newBody = replaceFormBodyParam(tp.getParamName(), urlEncode(newValue));
+        return HttpRequest.httpRequest(httpService, rebuildRequest(url, newBody));
+    }
+
+    private HttpRequest buildJsonBodyReplace(TestPoint tp, String newValue) {
+        String json = new String(body, StandardCharsets.UTF_8);
+        try {
+            Object root = SimpleJson.parse(json);
+            if (root == null) return originalRequest;
+            replaceJsonValue(root, tp.getJsonPath(), newValue);
+            String newJson = SimpleJson.toJson(root);
+            return HttpRequest.httpRequest(httpService, rebuildRequest(url, newJson.getBytes(StandardCharsets.UTF_8)));
+        } catch (Exception e) { return originalRequest; }
+    }
+
+    private HttpRequest buildJsonInParamReplace(TestPoint tp, String newValue) {
+        String q = ParameterParser.getQuery(url);
+        String outerRaw = null;
+        boolean foundInQuery = false;
+        if (q != null) {
+            for (String p : q.split("&")) {
+                String[] kv = split(p);
+                if (kv != null && JsonInParamParser.decode(kv[0]).equals(tp.getParamName())) {
+                    outerRaw = kv.length > 1 ? kv[1] : "";
+                    foundInQuery = true;
+                    break;
+                }
+            }
+        }
+        if (!foundInQuery && isForm() && body.length > 0) {
+            String bs = new String(body, StandardCharsets.UTF_8);
+            for (String p : bs.split("&")) {
+                String[] kv = split(p);
+                if (kv != null && JsonInParamParser.decode(kv[0]).equals(tp.getParamName())) {
+                    outerRaw = kv.length > 1 ? kv[1] : "";
+                    break;
+                }
+            }
+        }
+        if (outerRaw == null) return originalRequest;
+        boolean wasEncoded = tp.isJsonEncoded();
+        String innerJson = wasEncoded ? JsonInParamParser.decode(outerRaw) : outerRaw;
+        try {
+            Object root = SimpleJson.parse(innerJson);
+            if (root == null) return originalRequest;
+            replaceJsonValue(root, tp.getJsonPath(), newValue);
+            String newInner = SimpleJson.toJson(root);
+            if (wasEncoded) newInner = JsonInParamParser.encode(newInner);
+            if (foundInQuery) {
+                String nq = replaceQueryParam(q, tp.getParamName(), newInner);
+                String nu = ParameterParser.stripQuery(url) + "?" + nq;
+                return HttpRequest.httpRequest(httpService, rebuildRequest(nu, body));
+            } else {
+                byte[] nb = replaceFormBodyParam(tp.getParamName(), newInner);
+                return HttpRequest.httpRequest(httpService, rebuildRequest(url, nb));
+            }
+        } catch (Exception e) { return originalRequest; }
+    }
+
+    /** Replace a JSON field value entirely (no append). */
+    @SuppressWarnings("unchecked")
+    private static boolean replaceJsonValue(Object node, String jsonPath, String newValue) {
+        if (node == null || jsonPath == null) return false;
+        String[] segs = jsonPath.startsWith("$.") ? jsonPath.substring(2).split("\\.") : jsonPath.split("\\.");
+        return replaceTraverse(node, segs, 0, newValue);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static boolean replaceTraverse(Object node, String[] segs, int idx, String newValue) {
+        if (idx >= segs.length) return false;
+        String seg = segs[idx];
+        boolean last = (idx == segs.length - 1);
+        if (node instanceof Map) {
+            Map<String,Object> m = (Map<String,Object>) node;
+            String key = seg; int arrIdx = -1;
+            int bi = seg.indexOf('[');
+            if (bi > 0) { key = seg.substring(0, bi); arrIdx = Integer.parseInt(seg.substring(bi+1, seg.indexOf(']'))); }
+            if (last && arrIdx < 0) {
+                if (m.containsKey(key)) { m.put(key, newValue); return true; }
+                return false;
+            }
+            Object child = m.get(key);
+            if (child == null) return false;
+            if (arrIdx >= 0 && child instanceof List) {
+                List<Object> list = (List<Object>) child;
+                if (arrIdx < list.size()) { list.set(arrIdx, newValue); return true; }
+                return false;
+            }
+            return replaceTraverse(child, segs, idx + 1, newValue);
+        } else if (node instanceof List) {
+            int ai = Integer.parseInt(seg.replaceAll("[\\[\\]]", ""));
+            List<Object> list = (List<Object>) node;
+            if (ai >= list.size()) return false;
+            if (last) { list.set(ai, newValue); return true; }
+            return replaceTraverse(list.get(ai), segs, idx + 1, newValue);
+        }
+        return false;
+    }
+
     public HttpRequest buildOrder(String key, String value) {
         if (isJsonBody()) {
             String json = new String(body, StandardCharsets.UTF_8).strip();

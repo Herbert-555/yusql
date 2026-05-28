@@ -74,7 +74,7 @@ public class YuSQLTab extends JPanel {
 
     // Control panel components
     private JCheckBox enableChk, monRepeaterChk, monProxyChk;
-    private JCheckBox boolChk, errorChk, orderInjChk, orderChk, encodeCharsChk;
+    private JCheckBox boolChk, errorChk, orderInjChk, orderChk, negativeChk, numericInjChk, encodeCharsChk;
     private JTextField encodeCharsField;
     private JSpinner threadSp, queueSp;
     private JButton clearBtn;
@@ -289,9 +289,19 @@ public class YuSQLTab extends JPanel {
         });
         gbc.gridy = 6; panel.add(orderInjChk, gbc);
 
+        negativeChk = new JCheckBox("负数测试", config.isEnableNegative());
+        negativeChk.addActionListener(e -> config.setEnableNegative(negativeChk.isSelected()));
+        gbc.gridy = 7; panel.add(negativeChk, gbc);
+
+        numericInjChk = new JCheckBox("数字型注入", config.isEnableNumericInjection());
+        numericInjChk.addActionListener(e -> config.setEnableNumericInjection(numericInjChk.isSelected()));
+        gbc.gridy = 8; panel.add(numericInjChk, gbc);
+
         orderChk = new JCheckBox("追加参数测试", config.isEnableOrder());
         orderChk.addActionListener(e -> config.setEnableOrder(orderChk.isSelected()));
-        gbc.gridy = 7; panel.add(orderChk, gbc);
+        gbc.gridy = 9; panel.add(orderChk, gbc);
+        orderChk.addActionListener(e -> config.setEnableOrder(orderChk.isSelected()));
+        gbc.gridy = 8; panel.add(orderChk, gbc);
 
         // URL encode chars config
         JPanel encodeCharsPn = new JPanel(new FlowLayout(FlowLayout.LEFT, 2, 0));
@@ -309,12 +319,12 @@ public class YuSQLTab extends JPanel {
             @Override public void changedUpdate(javax.swing.event.DocumentEvent e) { saveEncodeChars(); }
         });
         encodeCharsPn.add(encodeCharsField);
-        gbc.gridy = 8; panel.add(encodeCharsPn, gbc);
+        gbc.gridy = 10; panel.add(encodeCharsPn, gbc);
 
         // Clear button
         clearBtn = new JButton("清空列表并重置扫描器");
         clearBtn.addActionListener(e -> clearAllResults());
-        gbc.gridy = 9;
+        gbc.gridy = 11;
         gbc.fill = GridBagConstraints.NONE;
         panel.add(clearBtn, gbc);
         gbc.fill = GridBagConstraints.HORIZONTAL;
@@ -332,13 +342,13 @@ public class YuSQLTab extends JPanel {
                 appendLog("所有配置已重置为默认规则");
             }
         });
-        gbc.gridy = 10;
+        gbc.gridy = 12;
         gbc.fill = GridBagConstraints.NONE;
         panel.add(resetConfigBtn, gbc);
         gbc.fill = GridBagConstraints.HORIZONTAL;
 
         // Thread spinner
-        gbc.gridy = 11;
+        gbc.gridy = 13;
         JPanel threadPn = new JPanel(new FlowLayout(FlowLayout.LEFT, 2, 0));
         threadPn.add(new JLabel("线程数:"));
         threadSp = new JSpinner(new SpinnerNumberModel(config.getThreadCount(), 1, 20, 1));
@@ -351,7 +361,7 @@ public class YuSQLTab extends JPanel {
         panel.add(threadPn, gbc);
 
         // Queue size
-        gbc.gridy = 12;
+        gbc.gridy = 14;
         JPanel queuePn = new JPanel(new FlowLayout(FlowLayout.LEFT, 2, 0));
         queuePn.add(new JLabel("队列:"));
         queueSp = new JSpinner(new SpinnerNumberModel(config.getMaxQueueSize(), 100, 2000, 100));
@@ -364,7 +374,7 @@ public class YuSQLTab extends JPanel {
         panel.add(queuePn, gbc);
 
         // Spacer
-        gbc.gridy = 13;
+        gbc.gridy = 15;
         gbc.weighty = 1.0;
         panel.add(Box.createVerticalStrut(10), gbc);
 

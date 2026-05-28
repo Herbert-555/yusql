@@ -18,7 +18,7 @@ public class YuSQLConfig {
     private boolean deduplicateTasks = true;
 
     // --- Module toggles ---
-    private boolean enableError = true, enableBoolean = true, enableOrder = true, enableOrderInjection = true;
+    private boolean enableError = true, enableBoolean = true, enableOrder = true, enableOrderInjection = true, enableNegative = true, enableNumericInjection = true;
 
     // --- Monitor ---
     private boolean monitorProxy, monitorRepeater;
@@ -128,6 +128,8 @@ public class YuSQLConfig {
         enableBoolean       = bp(props, "modules.enable_boolean_injection", true);
         enableOrder         = bp(props, "modules.enable_order_test", true);
         enableOrderInjection = bp(props, "modules.enable_order_injection", true);
+        enableNegative      = bp(props, "modules.enable_negative_test", true);
+        enableNumericInjection = bp(props, "modules.enable_numeric_injection", true);
 
         monitorProxy        = false; // Always off on restart to avoid accidental scanning
         monitorRepeater     = false;
@@ -163,6 +165,8 @@ public class YuSQLConfig {
         p.setProperty("modules.enable_boolean_injection",   ""+enableBoolean);
         p.setProperty("modules.enable_order_test",          ""+enableOrder);
         p.setProperty("modules.enable_order_injection",   ""+enableOrderInjection);
+        p.setProperty("modules.enable_negative_test",      ""+enableNegative);
+        p.setProperty("modules.enable_numeric_injection",  ""+enableNumericInjection);
         p.setProperty("monitor.monitor_proxy",              ""+monitorProxy);
         p.setProperty("monitor.monitor_repeater",           ""+monitorRepeater);
         p.setProperty("filter.enable_domain_whitelist",     ""+enableDomainWl);
@@ -544,6 +548,10 @@ public class YuSQLConfig {
 
     public boolean isEnableOrderInjection() { return enableOrderInjection; }
     public void setEnableOrderInjection(boolean v) { enableOrderInjection = v; }
+    public boolean isEnableNegative() { return enableNegative; }
+    public void setEnableNegative(boolean v) { enableNegative = v; }
+    public boolean isEnableNumericInjection() { return enableNumericInjection; }
+    public void setEnableNumericInjection(boolean v) { enableNumericInjection = v; }
 
     public boolean isEnableUrlEncodeChars() { return enableUrlEncodeChars; }
     public void setEnableUrlEncodeChars(boolean v) { enableUrlEncodeChars = v; }

@@ -32,6 +32,8 @@ public class ScanEngine {
     private BooleanBlindModule booleanMod;
     private OrderTestModule orderMod;
     private OrderInjectionModule orderInjMod;
+    private NegativeTestModule negativeMod;
+    private NumericInjectionModule numericInjMod;
 
     private ExecutorService executor;
     private volatile boolean running;
@@ -74,6 +76,10 @@ public class ScanEngine {
             config.getAppendParamGroups(), config.getLengthDiffAbs(), normalizer, moduleLogCb);
         orderInjMod = new OrderInjectionModule(api, normalizer,
             config.getOrderInjectionParams(), moduleLogCb);
+        negativeMod = new NegativeTestModule(api, comparator, normalizer,
+            config.getLengthDiffAbs(), moduleLogCb);
+        numericInjMod = new NumericInjectionModule(api, comparator, normalizer,
+            config.getLengthDiffAbs(), moduleLogCb);
         queue.setMax(config.getMaxQueueSize());
     }
 
@@ -273,7 +279,9 @@ public class ScanEngine {
             }
 
             log("[流程] R0完成, 开始参数测试, 模块开关: 布尔=" + config.isEnableBoolean()
-                + " 报错=" + config.isEnableError() + " 追加=" + config.isEnableOrder()
+                + " 报错=" + config.isEnableError() + " 负数=" + config.isEnableNegative()
+                + " 数字=" + config.isEnableNumericInjection()
+                + " 追加=" + config.isEnableOrder()
                 + " 排序=" + config.isEnableOrderInjection());
 
             // Execute per parameter: boolean → error
@@ -328,9 +336,53 @@ public class ScanEngine {
                         log("[错误] 报错注入异常 " + paramLabel + ": " + e.getMessage());
                     }
                 }
+
+                // 3. Negative number test (flip sign of numeric values)
+                if (config.isEnableNegative()) {
+                    try {
+                        List<LogEntry> negResults = negativeMod.test(builder, tp,
+                            task.getDataMd5(), r0ReqBytes, r0RespBytes, r0Len);
+                        for (LogEntry r : negResults) {
+                            if (r != null) {
+                                state.addSent(true);
+                                if (payloadResultCb != null) payloadResultCb.accept(r);
+                                int cl = r.getColorLevel();
+                                if (cl >= 3) hasRed = true;
+                                else if (cl >= 2) hasYellow = true;
+                                else if (cl >= 1) hasBlue = true;
+
+                                resultLogs.add(formatPayloadResult("负数", r));
+                            }
+                        }
+                    } catch (Exception e) {
+                        log("[错误] 负数测试异常 " + paramLabel + ": " + e.getMessage());
+                    }
+                }
+
+                // 4. Numeric injection (-0-0 / -0+1)
+                if (config.isEnableNumericInjection()) {
+                    try {
+                        List<LogEntry> numResults = numericInjMod.test(builder, tp,
+                            task.getDataMd5(), r0ReqBytes, r0RespBytes, r0Len);
+                        for (LogEntry r : numResults) {
+                            if (r != null) {
+                                state.addSent(true);
+                                if (payloadResultCb != null) payloadResultCb.accept(r);
+                                int cl = r.getColorLevel();
+                                if (cl >= 3) hasRed = true;
+                                else if (cl >= 2) hasYellow = true;
+                                else if (cl >= 1) hasBlue = true;
+
+                                resultLogs.add(formatPayloadResult("数字", r));
+                            }
+                        }
+                    } catch (Exception e) {
+                        log("[错误] 数字型注入异常 " + paramLabel + ": " + e.getMessage());
+                    }
+                }
             }
 
-            // 3. Single-param order injection: for append param keys that already exist
+            // 5. Single-param order injection: for append param keys that already exist
             //    in the original request, test each individually (other params stay unchanged)
             if (config.isEnableOrder() && config.isEnableOrderInjection()) {
                 Set<String> origParamNames = new HashSet<>();
