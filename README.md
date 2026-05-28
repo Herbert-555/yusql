@@ -50,11 +50,11 @@ POC 数量少且 payload 短，用最少的测试请求覆盖最多的注入类�
 
 扫描目标的时候，会出现这种每次请求不一样的字符，会影响页面变化的判断，会使用正则统一替换掉
 
-![image-20260528182658924](C:\Users\HUAWEI\Desktop\test\yusql\README.assets\image-20260528182658924.png)
+![image-20260528182658924](README.assets/image-20260528182658924.png)
 
 点击“归一化视图”可查看替换了哪些内容
 
-![image-20260528182757925](C:\Users\HUAWEI\Desktop\test\yusql\README.assets\image-20260528182757925.png)
+![image-20260528182757925](README.assets/image-20260528182757925.png)
 
 
 

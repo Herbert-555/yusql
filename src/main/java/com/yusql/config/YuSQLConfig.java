@@ -451,9 +451,9 @@ public class YuSQLConfig {
         "(?i)\\b(sessionid|session_id|JSESSIONID|PHPSESSID)=([^;,\\s\"]+)"
     };
 
-    // --- V5 Default Param Blacklist (12 patterns) ---
+    // --- V5 Default Param Blacklist (8 patterns) ---
     private static final String[] V5_DEFAULT_PARAM_BLACKLIST = {
-        "(?i)^page$","(?i)^pageSize$","(?i)^limit$","(?i)^offset$","(?i)^timestamp$","(?i)^time$",
+        "(?i)^timestamp$","(?i)^time$",
         "(?i)^callback$","(?i)^_$","(?i)^csrf$","(?i)^token$","(?i)^sign$","(?i)^signature$"
     };
 
