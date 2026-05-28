@@ -300,8 +300,6 @@ public class YuSQLTab extends JPanel {
         orderChk = new JCheckBox("追加参数测试", config.isEnableOrder());
         orderChk.addActionListener(e -> config.setEnableOrder(orderChk.isSelected()));
         gbc.gridy = 9; panel.add(orderChk, gbc);
-        orderChk.addActionListener(e -> config.setEnableOrder(orderChk.isSelected()));
-        gbc.gridy = 8; panel.add(orderChk, gbc);
 
         // URL encode chars config
         JPanel encodeCharsPn = new JPanel(new FlowLayout(FlowLayout.LEFT, 2, 0));
