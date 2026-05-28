@@ -15,6 +15,7 @@ import com.yusql.model.LogEntry;
 
 import javax.swing.*;
 import javax.swing.table.*;
+import javax.swing.text.*;
 import java.awt.*;
 import java.awt.event.*;
 import java.io.*;
@@ -64,10 +65,11 @@ public class YuSQLTab extends JPanel {
     private HttpRequestEditor requestEditor;
     private HttpResponseEditor responseEditor;
     private Component responseEditorComponent;
-    private JTextArea normalizedResponseArea;
+    private JTextPane normalizedResponsePane;
     private JPanel responsePanel;
-    private boolean normalizedResponseTabInstalled;
-    private int normalizedResponseTabInstallAttempts;
+    private JToggleButton normalizedViewToggle;
+    private CardLayout responseCardLayout;
+    private JPanel responseCardPanel;
     private final HttpService dummyService;
 
     // Control panel components
@@ -194,9 +196,30 @@ public class YuSQLTab extends JPanel {
         responseEditor = api.userInterface().createHttpResponseEditor();
         responseEditorComponent = responseEditor.uiComponent();
         responsePanel = new JPanel(new BorderLayout());
-        responsePanel.setBorder(BorderFactory.createTitledBorder("原始响应"));
-        responsePanel.add(responseEditorComponent, BorderLayout.CENTER);
-        SwingUtilities.invokeLater(this::installNormalizedResponseTab);
+
+        // Card layout: switch between raw Burp editor and normalized view
+        responseCardLayout = new CardLayout();
+        responseCardPanel = new JPanel(responseCardLayout);
+        responseCardPanel.add(responseEditorComponent, "raw");
+        responseCardPanel.add(createNormalizedResponsePanel(), "normalized");
+        responsePanel.add(responseCardPanel, BorderLayout.CENTER);
+
+        // Toggle button bar at top
+        normalizedViewToggle = new JToggleButton("归一化视图");
+        normalizedViewToggle.addActionListener(e -> {
+            if (normalizedViewToggle.isSelected()) {
+                responseCardLayout.show(responseCardPanel, "normalized");
+                setResponsePanelTitle("归一化响应");
+            } else {
+                responseCardLayout.show(responseCardPanel, "raw");
+                setResponsePanelTitle("原始响应");
+            }
+        });
+        JPanel toggleBar = new JPanel(new FlowLayout(FlowLayout.LEFT, 2, 0));
+        toggleBar.add(normalizedViewToggle);
+        responsePanel.add(toggleBar, BorderLayout.NORTH);
+
+        setResponsePanelTitle("原始响应");
         editorsSplit.setRightComponent(responsePanel);
 
         editorsSplit.setResizeWeight(0.5);
@@ -224,7 +247,7 @@ public class YuSQLTab extends JPanel {
 
         // Title
         gbc.gridy = 0;
-        panel.add(new JLabel("YuSQL 2.1.6 - 以下配置会自动保存至配置文件"), gbc);
+        panel.add(new JLabel("YuSQL 2.1.7 - 以下配置会自动保存至配置文件"), gbc);
 
         // Enable plugin
         enableChk = new JCheckBox("启动插件", true);
@@ -289,15 +312,33 @@ public class YuSQLTab extends JPanel {
         gbc.gridy = 8; panel.add(encodeCharsPn, gbc);
 
         // Clear button
-        clearBtn = new JButton("清空列表");
+        clearBtn = new JButton("清空列表并重置扫描器");
         clearBtn.addActionListener(e -> clearAllResults());
         gbc.gridy = 9;
         gbc.fill = GridBagConstraints.NONE;
         panel.add(clearBtn, gbc);
         gbc.fill = GridBagConstraints.HORIZONTAL;
 
-        // Thread spinner
+        // Reset config button
+        JButton resetConfigBtn = new JButton("重置所有配置");
+        resetConfigBtn.addActionListener(e -> {
+            int r = JOptionPane.showConfirmDialog(this,
+                "确认重置所有配置为默认规则？\n此操作将覆盖所有 .ini 配置文件。",
+                "重置配置", JOptionPane.YES_NO_OPTION);
+            if (r == JOptionPane.YES_OPTION) {
+                config.resetAllConfigs();
+                engine.reloadConfig();
+                refreshAllConfigEditors();
+                appendLog("所有配置已重置为默认规则");
+            }
+        });
         gbc.gridy = 10;
+        gbc.fill = GridBagConstraints.NONE;
+        panel.add(resetConfigBtn, gbc);
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+
+        // Thread spinner
+        gbc.gridy = 11;
         JPanel threadPn = new JPanel(new FlowLayout(FlowLayout.LEFT, 2, 0));
         threadPn.add(new JLabel("线程数:"));
         threadSp = new JSpinner(new SpinnerNumberModel(config.getThreadCount(), 1, 20, 1));
@@ -345,6 +386,9 @@ public class YuSQLTab extends JPanel {
 
         // Basic settings tab
         configTabs.addTab("基础配置", createBasicSettingsTab());
+
+        // Custom headers tab
+        configTabs.addTab("请求头配置", createCustomHeadersTab());
 
         // Log tab
         configTabs.addTab("日志", createLogTab());
@@ -583,6 +627,48 @@ public class YuSQLTab extends JPanel {
         btnPanel.add(openDirBtn);
         btnPanel.add(reloadBtn);
         panel.add(btnPanel);
+        return panel;
+    }
+
+    private JPanel createCustomHeadersTab() {
+        String fileName = "SQL_custom_headers.ini";
+        JPanel panel = new JPanel(new BorderLayout());
+        JTextArea textArea = new JTextArea();
+        textArea.setFont(new Font("Monospaced", Font.PLAIN, 12));
+
+        loadConfigFile(fileName, textArea);
+
+        JScrollPane scroll = new JScrollPane(textArea);
+        panel.add(scroll, BorderLayout.CENTER);
+
+        JLabel hint = new JLabel("每行一个请求头，格式: Header-Name: value（如 Range: bytes=0-1000）");
+        hint.setFont(new Font("SansSerif", Font.PLAIN, 10));
+        panel.add(hint, BorderLayout.NORTH);
+
+        JPanel btnPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 2, 2));
+        JButton saveReloadBtn = new JButton("保存并重新加载");
+        saveReloadBtn.addActionListener(e -> {
+            try {
+                Files.createDirectories(configDir);
+                Path filePath = configDir.resolve(fileName);
+                Files.writeString(filePath, textArea.getText(), StandardCharsets.UTF_8);
+                appendLog("已保存: " + fileName);
+                config.loadAllConfigs();
+                engine.reloadConfig();
+            } catch (Exception ex) {
+                appendLog("保存失败 " + fileName + ": " + ex.getMessage());
+            }
+        });
+        JButton openFileBtn = new JButton("打开配置文件");
+        openFileBtn.addActionListener(e -> {
+            Path filePath = configDir.resolve(fileName);
+            try { Desktop.getDesktop().open(filePath.toFile()); }
+            catch (Exception ex) { /* ignore */ }
+        });
+        btnPanel.add(saveReloadBtn);
+        btnPanel.add(openFileBtn);
+        panel.add(btnPanel, BorderLayout.SOUTH);
+
         return panel;
     }
 
@@ -831,42 +917,19 @@ public class YuSQLTab extends JPanel {
     }
 
     private JComponent createNormalizedResponsePanel() {
-        if (normalizedResponseArea == null) {
-            normalizedResponseArea = new JTextArea();
-            normalizedResponseArea.setEditable(false);
-            normalizedResponseArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
-            normalizedResponseArea.setLineWrap(true);
-            normalizedResponseArea.setWrapStyleWord(false);
+        if (normalizedResponsePane == null) {
+            normalizedResponsePane = new JTextPane();
+            normalizedResponsePane.setEditable(false);
+            normalizedResponsePane.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
         }
-        return new JScrollPane(normalizedResponseArea);
+        return new JScrollPane(normalizedResponsePane);
     }
 
-    private void installNormalizedResponseTab() {
-        if (normalizedResponseTabInstalled || responseEditorComponent == null) return;
-        JTabbedPane tabs = findResponseEditorTabs(responseEditorComponent);
-        if (tabs == null) {
-            normalizedResponseTabInstallAttempts++;
-            if (normalizedResponseTabInstallAttempts <= 10) {
-                SwingUtilities.invokeLater(this::installNormalizedResponseTab);
-            }
-            return;
-        }
-        if (hasTab(tabs, "归一化响应")) {
-            normalizedResponseTabInstalled = true;
-            return;
-        }
-        int renderIndex = findRenderTabIndex(tabs);
-        int insertIndex = renderIndex >= 0 ? renderIndex + 1 : tabs.getTabCount();
-        tabs.insertTab("归一化响应", null, createNormalizedResponsePanel(), null, insertIndex);
-        normalizedResponseTabInstalled = true;
-    }
+    private static final java.util.regex.Pattern NOISE_TAG_RE =
+        java.util.regex.Pattern.compile("<(UUID|HEX|TS|DATETIME|JWT|TOKEN|SESSION|NOISE)>");
 
     private void updateNormalizedResponse(byte[] responseBytes) {
-        if (!normalizedResponseTabInstalled) {
-            normalizedResponseTabInstallAttempts = 0;
-            installNormalizedResponseTab();
-        }
-        if (normalizedResponseArea == null) return;
+        if (normalizedResponsePane == null) return;
         if (responseBytes == null || responseBytes.length == 0) {
             clearNormalizedResponse();
             return;
@@ -875,15 +938,38 @@ public class YuSQLTab extends JPanel {
             HttpResponse response = HttpResponse.httpResponse(byteArray(responseBytes));
             String body = response.bodyToString();
             String normalizedBody = createCurrentNormalizer().normalize(body);
-            normalizedResponseArea.setText(normalizedBody);
-            normalizedResponseArea.setCaretPosition(0);
+
+            StyledDocument doc = normalizedResponsePane.getStyledDocument();
+            // Default style
+            Style def = StyleContext.getDefaultStyleContext().getStyle(StyleContext.DEFAULT_STYLE);
+            StyleConstants.setFontFamily(def, Font.MONOSPACED);
+            StyleConstants.setFontSize(def, 12);
+
+            // Highlight style for replaced noise tags
+            Style hl = doc.addStyle("hl", def);
+            StyleConstants.setBackground(hl, new Color(255, 255, 0)); // yellow
+            StyleConstants.setBold(hl, true);
+
+            doc.remove(0, doc.getLength());
+            int lastEnd = 0;
+            java.util.regex.Matcher m = NOISE_TAG_RE.matcher(normalizedBody);
+            while (m.find()) {
+                if (m.start() > lastEnd) {
+                    doc.insertString(doc.getLength(), normalizedBody.substring(lastEnd, m.start()), def);
+                }
+                doc.insertString(doc.getLength(), m.group(), hl);
+                lastEnd = m.end();
+            }
+            if (lastEnd < normalizedBody.length()) {
+                doc.insertString(doc.getLength(), normalizedBody.substring(lastEnd), def);
+            }
         } catch (Exception e) {
             clearNormalizedResponse();
         }
     }
 
     private void clearNormalizedResponse() {
-        if (normalizedResponseArea != null) normalizedResponseArea.setText("");
+        if (normalizedResponsePane != null) normalizedResponsePane.setText("");
     }
 
     private Normalizer createCurrentNormalizer() {
@@ -893,49 +979,6 @@ public class YuSQLTab extends JPanel {
         return normalizer;
     }
 
-    private JTabbedPane findResponseEditorTabs(Component component) {
-        List<JTabbedPane> candidates = new ArrayList<>();
-        collectTabbedPanes(component, candidates);
-        JTabbedPane fallback = null;
-        for (JTabbedPane tabs : candidates) {
-            if (fallback == null) fallback = tabs;
-            for (int i = 0; i < tabs.getTabCount(); i++) {
-                String title = tabs.getTitleAt(i);
-                if (title == null) continue;
-                String lower = title.toLowerCase(Locale.ROOT);
-                if (lower.contains("raw") || lower.contains("hex") || title.contains("美化") || title.contains("页面渲染")) {
-                    return tabs;
-                }
-            }
-        }
-        return fallback;
-    }
-
-    private void collectTabbedPanes(Component component, List<JTabbedPane> result) {
-        if (component instanceof JTabbedPane tabs) result.add(tabs);
-        if (component instanceof Container container) {
-            for (Component child : container.getComponents()) {
-                collectTabbedPanes(child, result);
-            }
-        }
-    }
-
-    private boolean hasTab(JTabbedPane tabs, String title) {
-        for (int i = 0; i < tabs.getTabCount(); i++) {
-            if (title.equals(tabs.getTitleAt(i))) return true;
-        }
-        return false;
-    }
-
-    private int findRenderTabIndex(JTabbedPane tabs) {
-        for (int i = 0; i < tabs.getTabCount(); i++) {
-            String title = tabs.getTitleAt(i);
-            if (title == null) continue;
-            String lower = title.toLowerCase(Locale.ROOT);
-            if (title.contains("页面渲染") || title.contains("渲染") || lower.contains("render")) return i;
-        }
-        return -1;
-    }
 
     private String calculateSimilarityDisplay(LogEntry entry) {
         byte[] baseResponse = findScanResponse(entry.getDataMd5());
@@ -1147,6 +1190,14 @@ public class YuSQLTab extends JPanel {
     }
 
     public void clearAllResults() {
+        // 停止引擎并清空任务队列
+        if (engine.isRunning()) {
+            engine.stop();
+        }
+        engine.getQueue().clear();
+        engine.getDedup().clearAll();
+        engine.getState().reset();
+        // 清空 UI 数据
         scanResults.clear();
         payloadDetails.clear();
         filteredPayloadCache.clear();
@@ -1170,6 +1221,12 @@ public class YuSQLTab extends JPanel {
 
     public void clearDedupCache() {
         engine.getDedup().clearAll();
+    }
+
+    private void refreshAllConfigEditors() {
+        for (var entry : configEditors.entrySet()) {
+            loadConfigFile(entry.getKey(), entry.getValue());
+        }
     }
 
     // --- Inner table model classes ---

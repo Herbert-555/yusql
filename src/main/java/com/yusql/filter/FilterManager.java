@@ -60,8 +60,11 @@ public class FilterManager {
 
     private boolean matchesAny(String value, List<Pattern> patterns) {
         if (value == null) return false;
+        // Also try without query string so that .*\\.mp4$ matches /a.mp4?X-Tos-Algorithm=...
+        String noQuery = value.contains("?") ? value.substring(0, value.indexOf('?')) : null;
         for (Pattern p : patterns) {
             if (p.matcher(value).matches()) return true;
+            if (noQuery != null && p.matcher(noQuery).matches()) return true;
         }
         return false;
     }

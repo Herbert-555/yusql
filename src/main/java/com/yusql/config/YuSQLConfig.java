@@ -53,6 +53,7 @@ public class YuSQLConfig {
     private final List<Pattern> urlBlacklist = new CopyOnWriteArrayList<>();
     private final List<String> domainWhitelist = new CopyOnWriteArrayList<>();
     private final List<String> domainBlacklist = new CopyOnWriteArrayList<>();
+    private final List<Map.Entry<String, String>> customHeaders = new ArrayList<>();
 
     private final List<Runnable> listeners = new ArrayList<>();
     public void onChange(Runnable r) { listeners.add(r); }
@@ -83,6 +84,7 @@ public class YuSQLConfig {
         urlBlacklist.clear(); urlBlacklist.addAll(loadPatterns(path("SQL_url_blacklist.ini"), errors, true));
         domainWhitelist.clear(); domainWhitelist.addAll(loadLines(path("SQL_domain_whitelist.ini"), errors));
         domainBlacklist.clear(); domainBlacklist.addAll(loadLines(path("SQL_domain_blacklist.ini"), errors));
+        customHeaders.clear(); customHeaders.addAll(loadCustomHeaders(errors));
         createDefaultsIfMissing();
         // Reload any configs that were empty because defaults were just created
         if (errorPatterns.isEmpty()) { errorPatterns.addAll(loadPatterns(path("SQL_diy_error.ini"), errors, true)); }
@@ -90,6 +92,7 @@ public class YuSQLConfig {
         if (noiseRegexes.isEmpty()) { noiseRegexes.addAll(loadPatterns(path("SQL_noise_regex.ini"), errors, true)); }
         if (paramBlacklist.isEmpty()) { paramBlacklist.addAll(loadPatterns(path("SQL_param_blacklist.ini"), errors, true)); }
         if (urlBlacklist.isEmpty()) { urlBlacklist.addAll(loadPatterns(path("SQL_url_blacklist.ini"), errors, true)); }
+        if (customHeaders.isEmpty()) { customHeaders.addAll(loadCustomHeaders(errors)); }
         return errors;
     }
 
@@ -104,6 +107,7 @@ public class YuSQLConfig {
             if (!Files.exists(path(f))) writeString(path(f), "# One rule per line\n");
         if (!Files.exists(path("SQL_order_injection_params.ini"))) saveOrderInjectionParamsToFile(defaultOrderInjectionParams());
         if (!Files.exists(path("SQL_error_pocs.ini"))) writeString(path("SQL_error_pocs.ini"), "\\");
+        if (!Files.exists(path("SQL_custom_headers.ini"))) writeString(path("SQL_custom_headers.ini"), "Range: bytes=0-1000");
     }
 
     // =========================================================================
@@ -245,6 +249,34 @@ public class YuSQLConfig {
             }
         } catch (IOException e) { errors.add("read "+f.getFileName()+": "+e.getMessage()); }
         return m;
+    }
+
+    private List<Map.Entry<String,String>> loadCustomHeaders(List<String> errors) {
+        List<Map.Entry<String,String>> list = new ArrayList<>();
+        Path f = path("SQL_custom_headers.ini");
+        if (!Files.exists(f)) return list;
+        try {
+            for (String line : Files.readAllLines(f, StandardCharsets.UTF_8)) {
+                line = line.strip();
+                if (line.isEmpty() || line.startsWith("#")) continue;
+                int idx = line.indexOf(':');
+                if (idx > 0) {
+                    String k = line.substring(0, idx).strip();
+                    String v = line.substring(idx + 1).strip();
+                    if (!k.isEmpty()) list.add(new AbstractMap.SimpleEntry<>(k, v));
+                }
+            }
+        } catch (IOException e) { errors.add("read custom_headers: " + e.getMessage()); }
+        return list;
+    }
+
+    public void saveCustomHeaders(List<Map.Entry<String,String>> headers) {
+        customHeaders.clear();
+        customHeaders.addAll(headers);
+        ensureDir();
+        try (PrintWriter pw = new PrintWriter(Files.newBufferedWriter(path("SQL_custom_headers.ini"), StandardCharsets.UTF_8))) {
+            for (var e : headers) pw.println(e.getKey() + ": " + e.getValue());
+        } catch (IOException e) {}
     }
 
     // =========================================================================
@@ -425,10 +457,10 @@ public class YuSQLConfig {
         "(?i)^callback$","(?i)^_$","(?i)^csrf$","(?i)^token$","(?i)^sign$","(?i)^signature$"
     };
 
-    // --- V5 Default URL Blacklist (123 patterns) ---
+    // --- V5 Default URL Blacklist (124 patterns) ---
     private static final String[] V5_DEFAULT_URL_BLACKLIST = {
         "/static/.*",
-        ".*\\.css$",".*\\.js$",".*\\.jpg$",".*\\.jpeg$",".*\\.png$",".*\\.gif$",
+        ".*\\.css$",".*\\.js$",".*\\.jpg$",".*\\.jpeg$",".*\\.png$",".*\\.gif$",".*\\.glb$",
         ".*\\.bmp$",".*\\.svg$",".*\\.ico$",".*\\.woff$",".*\\.woff2$",".*\\.ts$",
         ".*\\.m3u8$",".*\\.OTF$",".*\\.3g2$",".*\\.3gp$",".*\\.7z$",".*\\.aac$",
         ".*\\.abw$",".*\\.aif$",".*\\.aifc$",".*\\.aiff$",".*\\.apk$",".*\\.arc$",
@@ -565,6 +597,7 @@ public class YuSQLConfig {
     public List<Pattern> getUrlBlacklist() { return urlBlacklist; }
     public List<String> getDomainWhitelist() { return domainWhitelist; }
     public List<String> getDomainBlacklist() { return domainBlacklist; }
+    public List<Map.Entry<String,String>> getCustomHeaders() { return new ArrayList<>(customHeaders); }
 
     /** Load user-custom error POCs from SQL_error_pocs.ini, filtering out ', '', ''' */
     public List<String> getErrorPocs() {
@@ -582,6 +615,25 @@ public class YuSQLConfig {
             }
         } catch (IOException e) { /* ignore */ }
         return pocs;
+    }
+
+    /** Force-reset all config files to built-in defaults. */
+    public void resetAllConfigs() {
+        ensureDir();
+        saveSettings();
+        savePatterns(path("SQL_diy_error.ini"), defaultErrorPatterns());
+        saveAppendParamsToFile(defaultAppendParams());
+        savePatterns(path("SQL_noise_regex.ini"), defaultNoisePatterns());
+        savePatterns(path("SQL_param_blacklist.ini"), defaultParamBlPatterns());
+        savePatterns(path("SQL_url_blacklist.ini"), defaultUrlBlPatterns());
+        writeString(path("SQL_param_whitelist.ini"), "# One rule per line\n");
+        writeString(path("SQL_domain_whitelist.ini"), "# One rule per line\n");
+        writeString(path("SQL_domain_blacklist.ini"), "# One rule per line\n");
+        writeString(path("SQL_append_params_groups.ini"), "# One rule per line\n");
+        saveOrderInjectionParamsToFile(defaultOrderInjectionParams());
+        writeString(path("SQL_error_pocs.ini"), "\\");
+        writeString(path("SQL_custom_headers.ini"), "Range: bytes=0-1000");
+        loadAll();
     }
 
     public Path getConfigDir() { return DIR; }

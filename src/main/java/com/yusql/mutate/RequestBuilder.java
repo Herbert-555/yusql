@@ -22,6 +22,7 @@ public class RequestBuilder {
     private final List<HttpHeader> headers;
     private final HttpRequest originalRequest;
     private String urlEncodeChars = "";
+    private List<Map.Entry<String, String>> customHeaders = Collections.emptyList();
 
     public RequestBuilder(byte[] requestBytes, HttpService httpService) {
         this.originalBytes = requestBytes;
@@ -240,6 +241,10 @@ public class RequestBuilder {
                 sb.append(h.name).append(": ").append(h.value).append("\r\n");
             }
         }
+        // Inject custom headers (e.g. Range: bytes=0-1000)
+        for (var ch : customHeaders) {
+            sb.append(ch.getKey()).append(": ").append(ch.getValue()).append("\r\n");
+        }
         if (!hasCL && newBody != null && newBody.length > 0)
             sb.append("Content-Length: ").append(newBody.length).append("\r\n");
         sb.append("\r\n");
@@ -357,6 +362,7 @@ public class RequestBuilder {
     public HttpRequest getOriginalRequest() { return originalRequest; }
     public List<HttpHeader> getHeaders() { return headers; }
     public void setUrlEncodeChars(String chars) { this.urlEncodeChars = chars != null ? chars : ""; }
+    public void setCustomHeaders(List<Map.Entry<String, String>> headers) { this.customHeaders = headers != null ? headers : Collections.emptyList(); }
 
     private static String[] split(String p) { int i = p.indexOf('='); return i<0?new String[]{p,""}:new String[]{p.substring(0,i),p.substring(i+1)}; }
     private static String urlEncode(String v) { return JsonInParamParser.encode(v); }

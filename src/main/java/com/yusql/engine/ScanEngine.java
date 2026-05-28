@@ -91,6 +91,13 @@ public class ScanEngine {
         String url = urlMethod[0];
         String method = urlMethod[1];
 
+        // Skip OPTIONS requests - no SQL injection possible
+        if ("OPTIONS".equalsIgnoreCase(method)) {
+            log("[跳过] OPTIONS请求不测试: " + url);
+            state.incSkipped();
+            return false;
+        }
+
         // Quick URL-based filter check (domain/URL blacklist)
         String filterReason = filterManager.checkRequest(url);
         if (filterReason != null) {
@@ -216,6 +223,7 @@ public class ScanEngine {
         String url = "";
         try {
             RequestBuilder builder = new RequestBuilder(task.getRequest(), task.getHttpService());
+            builder.setCustomHeaders(config.getCustomHeaders());
             if (config.isEnableUrlEncodeChars()) {
                 builder.setUrlEncodeChars(config.getUrlEncodeChars());
             }
