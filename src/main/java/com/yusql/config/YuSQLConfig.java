@@ -129,8 +129,8 @@ public class YuSQLConfig {
         enableOrder         = bp(props, "modules.enable_order_test", true);
         enableOrderInjection = bp(props, "modules.enable_order_injection", true);
 
-        monitorProxy        = bp(props, "monitor.monitor_proxy", false);
-        monitorRepeater     = bp(props, "monitor.monitor_repeater", false);
+        monitorProxy        = false; // Always off on restart to avoid accidental scanning
+        monitorRepeater     = false;
 
         enableDomainWl      = bp(props, "filter.enable_domain_whitelist", false);
         enableDomainBl      = bp(props, "filter.enable_domain_blacklist", true);
